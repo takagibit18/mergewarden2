@@ -14,7 +14,7 @@ Read README.md, docs/DECISIONS.md, docs/IMPLEMENTATION_STATUS.md and the relevan
 - agent_end, zero findings, empty graph results and tool timeouts are not review completion.
 - Jev is optional, provider-neutral and OFF by default. Shadow must not affect behavior.
 - Hard permissions, publication, and completion are deterministic business responsibilities.
-- MemoryJournal is tests/demo only. Pi CustomEntry is the intended production journal port, but startup persistence and failure guarantees remain unimplemented gates.
+- MemoryJournal is tests/demo only. production uses durable Pi CustomEntry over an exclusively opened session file. Preserve startup fsync, poisoned-journal failure, and verified report-delivery gates.
 - Do not claim stub integrations, synthetic demos or unrun tests are product capabilities.
 
 ## Validation

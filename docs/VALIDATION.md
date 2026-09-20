@@ -1,44 +1,44 @@
 # 实测记录 · 2026-09-20
 
-环境：Windows，Node.js 24.12.0，npm 11.6.2。以下为本次目标开发机执行结果，不是原骨架容器记录。
+## v0.1 离线实现验证
 
-## 本地已完成
+本机：Windows，Node.js 24.12.0、npm 11.6.2、Git 2.53.0。最新完整 `npm run verify` 退出码 0：
 
 | 检查 | 结果 |
 |---|---|
-| 官方 npm registry 安装 | 根目录、Pi、Tree-sitter 三个真实 lockfile 已生成；安装时 audit 均为 0 vulnerabilities |
-| `npm run setup` | 三个目录按 lockfile 全新执行 `npm ci --ignore-scripts` 成功 |
-| `npm run verify` | 安装后完整执行成功，退出码 0 |
-| 核心测试 | 39 passed / 0 failed / 0 skipped |
-| Pi SDK smoke | 7 passed / 0 failed / 0 skipped |
-| 真 Python grammar | 5 passed / 0 failed / 0 skipped |
-| 严格类型检查 | 核心 + Pi + Tree-sitter 三个项目通过；TypeScript 5.9.3 / @types/node 24.12.4 |
-| demo / status | 成功；demo 明确为 synthetic，status 明确 M0 和未实现功能 |
-| `review` 未实现边界 | 返回退出码 2，明确没有执行真实审查 |
-| SQLite schema | Python sqlite3 内存建表成功，foreign_keys=ON；不代表图服务 |
+| 核心、快照、引擎和 CLI | 70 passed / 0 failed / 0 skipped |
+| Pi 原生 SDK | 11 passed / 0 failed / 0 skipped |
+| Python 真 grammar | 5 passed / 0 failed / 0 skipped |
+| 类型检查 | 核心、Pi、Tree-sitter 全部通过 |
+| demo / status | 成功；明确 synthetic 和真实模型未验收 |
 
-合计 **51 项测试通过**。Pi 测试使用真实安装的 SDK 和原生 JSONL；assistant 内容为 synthetic fixture，不访问模型。Parser 测试使用官方发布 WASM，不执行 Python 源码。
+共 **86 项通过**，保留原有 51 项，新增 35 项。没有真实模型调用。
 
-首次 GitHub 四组矩阵已全部通过：[运行记录](https://github.com/takagibit18/mergewarden2/actions/runs/35485585533)。其运行环境弃用提示随后通过锁定官方 checkout v7.0.1 / setup-node v7.0.0 的具体提交修正；最新提交结果见下方 Actions 链接。
+### 新增覆盖
 
-## 固定的外部依赖
+- 12 个快照用例：提交身份、原快照内容、部分暂存、中文重命名/删除、显式未跟踪文件、忽略、冻结竞争、分页/范围、符号链接/二进制、内容/覆盖篡改、目录隔离、原子写失败、BOM/CRLF、unborn HEAD。
+- 15 个引擎用例：有证据建议、空差异、缺失最终提交、未读/部分读取/错误 hash/重复提交、部分覆盖、模拟凭据/供应商错误、取消、时间/工具预算、业务日志失败、JSON/Markdown 写失败、交付清单前中断、原快照新 run、并发锁及产物篡改。
+- 4 个 Pi 用例：首条 assistant 前持久化及恢复、截断日志后永久失败、**真实 SDK 循环连接离线 provider 替身并交付报告**、原生消息写失败阻止工具执行。
+- 4 个 CLI 用例：帮助/状态、缺少明确凭据、历史/诊断、重复选项及密钥不回显。
 
-- Pi coding-agent 0.84.1；npm transitive dependencies 由适配器 lockfile 固定。
-- web-tree-sitter 0.27.0；Python grammar 0.25.0，ABI 15。
-- grammar commit、SHA-256 和许可证记录见 `integrations/tree-sitter/grammars/python.lock.json`。
+错误凭据测试使用模拟异常；还没有向真实供应商发送错误密钥。Pi 循环测试证明业务接线和 SDK 行为，不证明模型质量。报告中断测试是确定性故障注入，不是物理断电或所有文件系统耐久性测试。
 
-## 新发现的边界
+### 已准备，未执行
 
-Pi 0.84.1 新会话在首条 assistant 消息之前可能没有 JSONL 文件；该行为已纳入回归测试。写入 native CustomEntry 成功不等于可靠落盘，也不能据此承诺 fsync 或 exactly-once。
+`fixtures/live-v01/fixture.json` 在真实调用前标注了一个 Python 缺陷/修复 smoke 用例；已在本地 `../mergewarden2-live-fixture` 生成三次 Git 提交。只创建样例，未调用模型。
 
-测试已覆盖会话重开、当前分支、身份不符、事件序号异常和调用方对象隔离；没有完成进程崩溃、截断尾记录、磁盘故障或生产恢复协议验收。
+下一步由用户按 [真实模型验收](LIVE_ACCEPTANCE.md) 配置供应商、模型及环境变量。在完成实际审查、证据核对与报告重开前，不打 v0.1.0 标签。
 
 ## CI
 
-`.github/workflows/core.yml` 对 Windows/Linux × Node 22.19.0/24.12.0 执行相同 setup 和 verify。每次远端实际结果以 [GitHub Actions](https://github.com/takagibit18/mergewarden2/actions) 对应提交为准；不会把本地 Windows 的通过冒充 Linux 实测。
+`.github/workflows/core.yml` 运行 Windows/Linux × Node 22.19.0/24.12.0 的相同验证流程。当前 PR 以其对应的 [GitHub Actions](https://github.com/takagibit18/mergewarden2/actions) 结果为准；本地 Windows 通过不代替 Linux 或 WSL。
 
-## 未执行 / 未实现
+M0 历史基线 51 项及首次四组矩阵通过记录：[M0 CI](https://github.com/takagibit18/mergewarden2/actions/runs/35485711680)。
 
-没有真实模型审查、完整快照和源码工具、完整 resolver/图存储、Jev、IDE、MCP/ACP 或 PR 发布。没有选择公共许可证，没有部署服务。原架构 DOCX 与同源正文保留骨架历史内容，未重新生成或重新验证排版。
+## 依赖和边界
 
-原骨架在生成环境中因 npm DNS 失败而未安装依赖；此限制在本次目标机器的官方 registry 安装中已解除。
+依赖与 lockfile 本轮未更换：Pi 0.84.1；web-tree-sitter 0.27.0；Python grammar 0.25.0、ABI 15，来源/hash 见 grammar lock。
+
+M0 发现的首条 assistant 前延迟持久化已通过公开 API 的独占空文件初始化解决，原行为测试保留。当前强制同步及校验，不宣称 exactly-once 或数据库事务。
+
+完整图 resolver/SQLite、VS Code/VSIX、Windows/WSL 产品验收、20 个标注样例及 3 对公开项目评测尚未实施。没有真实供应商被标为“已实测”，也未发布 Marketplace、公共许可证或版本标签。

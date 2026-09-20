@@ -16,7 +16,8 @@
     "check": "npm test && npm run typecheck",
     "test:integrations": "npm --prefix integrations/pi test && npm --prefix integrations/tree-sitter test",
     "typecheck:integrations": "npm --prefix integrations/pi run typecheck && npm --prefix integrations/tree-sitter run typecheck",
-    "verify": "npm run check && npm run typecheck:integrations && npm run test:integrations && npm run demo && npm run status"
+    "verify": "npm run check && npm run typecheck:integrations && npm run test:integrations && npm run demo && npm run status",
+    "cli": "node --experimental-strip-types src/cli/main.ts"
   },
   "devDependencies": {
     "typescript": "5.9.3",
