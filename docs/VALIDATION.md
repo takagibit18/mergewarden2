@@ -19,6 +19,8 @@
 
 合计 **51 项测试通过**。Pi 测试使用真实安装的 SDK 和原生 JSONL；assistant 内容为 synthetic fixture，不访问模型。Parser 测试使用官方发布 WASM，不执行 Python 源码。
 
+首次 GitHub 四组矩阵已全部通过：[运行记录](https://github.com/takagibit18/mergewarden2/actions/runs/35485585533)。其运行环境弃用提示随后通过锁定官方 checkout v7.0.1 / setup-node v7.0.0 的具体提交修正；最新提交结果见下方 Actions 链接。
+
 ## 固定的外部依赖
 
 - Pi coding-agent 0.84.1；npm transitive dependencies 由适配器 lockfile 固定。
