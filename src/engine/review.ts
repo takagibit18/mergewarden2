@@ -7,6 +7,8 @@ import { assertCandidate, isRecord, requireCondition, requireText } from "../dom
 import type { ReviewReport } from "../domain/contracts.ts";
 import { isolatedState, sha256, writeJson } from "../infrastructure/files.ts";
 import { SnapshotStore } from "../snapshot/store.ts";
+import { LazyCodeGraph } from "../graph/lazy-graph.ts";
+import type { Relation } from "../graph/contracts.ts";
 import { deliver, readRun, runPath } from "./reports.ts";
 import type { FinalSubmission, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
 const string = { type: "string", minLength: 1, maxLength: 4000 };
@@ -24,6 +26,7 @@ export class ReviewEngine {
   private delivery: typeof deliver;
   constructor(factory: RuntimeFactory, delivery: typeof deliver = deliver) { this.factory = factory; this.delivery = delivery; }
   async run(options: ReviewOptions, onProgress: (event: ReviewProgress) => void = () => {}): Promise<ReviewResult> {
+    const reviewStarted = performance.now();
     const notify = (event: ReviewProgress) => { try { onProgress(event); } catch { /* UI observers cannot alter the run. */ } };
     const timeoutMs = options.timeoutMs ?? 600_000; const maxTools = options.maxToolCalls ?? 100;
     requireCondition(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 3_600_000, "Timeout must be 1..3600000 ms");
@@ -58,6 +61,12 @@ export class ReviewEngine {
       const runId = randomUUID(); const runDir = runPath(stateDir, runId); await mkdir(runDir, { recursive: true, mode: 0o700 });
       manifest = { schemaVersion: 1, runId, snapshotId: store.manifest.identity.id, repositoryPath: repository, model: options.model, configurationFingerprint: store.manifest.identity.configurationFingerprint, limits: { timeoutMs, maxToolCalls: maxTools }, status: "running", createdAt: new Date().toISOString(), ...(options.rerunId ? { parentRunId: options.rerunId } : {}) };
       await writeJson(join(runDir, "run.json"), manifest);
+      const graph = new LazyCodeGraph(stateDir, store.manifest.identity.id);
+      const graphEnabled = options.evaluation?.tools !== "text-only";
+      manifest.toolExposure = graphEnabled ? "text+graph" : "text-only";
+      let graphFailed = false;
+      const sourceReads = new Set<string>();
+      const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = ""; let toolCalls = 0; let toolQueue: Promise<unknown> = Promise.resolve();
       const readDiffLines = new Map<string, { total: number; seen: Set<number> }>();
       const tool = (name: string, description: string, schema: Record<string, unknown>, execute: (input: Record<string, unknown>) => Promise<unknown>): RuntimeTool => ({ name, description, schema,
@@ -77,7 +86,9 @@ export class ReviewEngine {
           toolQueue = job.catch(() => undefined); return job;
         } });
       const tools = [
-        tool("read_source", "Read 1–200 lines of immutable base/head source; copy the returned hash and exact range for evidence.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200))),
+        tool("read_source", "Read 1–200 lines of immutable base/head source; copy the returned hash and exact range for evidence.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
+          const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200)); sourceReads.add(sourceKey(page)); return page;
+        }),
         tool("read_diff", "Read a page of the frozen change. Follow nextCursor until truncated=false before marking this path reviewed.", object({ path: string, cursor: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } }, ["path"]), async input => {
           const page = await store.diff(text(input.path), number(input.cursor, 0), number(input.limit, 100));
           if (page.status === "ok") {
@@ -104,6 +115,7 @@ export class ReviewEngine {
             requireCondition(!ids.has(candidate.id), "Duplicate candidate id"); ids.add(candidate.id);
             requireCondition(candidate.evidence.some(e => submission.reviewedPaths.includes(e.path)), "Finding needs evidence in a reviewed changed file");
             const integrity = await checkEvidence(candidate, store); requireCondition(integrity.ok, integrity.failures.join("; "));
+            requireCondition(candidate.evidence.every(e => sourceReads.has(sourceKey(e))), "Finding evidence must be read with read_source in this run");
           }
           abort.signal.throwIfAborted();
           await controller!.dispatch({ type: "candidates.submitted", channel: "final_only", candidates: submission.findings });
@@ -113,7 +125,19 @@ export class ReviewEngine {
           return { accepted: true, findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
         }),
       ];
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools });
+      if (graphEnabled) {
+        const limit = { type: "integer", minimum: 1, maximum: 100 }; const cursor = { type: "string", maxLength: 256 };
+        const graphResult = async (run: () => Promise<import("../graph/contracts.ts").GraphPage<unknown>>) => {
+          try { const page = await run(); if (["error", "not_indexed"].includes(page.status)) graphFailed = true; return page; }
+          catch (error) { graphFailed = true; throw error; }
+        };
+        tools.splice(3, 0,
+          tool("graph_lookup", "Lookup exact Python symbol name or qualified name in immutable HEAD. Read coverage/warnings; use read_source for evidence.", object({ query: string, limit, cursor }, ["query", "limit"]), async input => graphResult(() => graph.lookup({ snapshotId: store.manifest.identity.id, query: text(input.query), limit: number(input.limit, 20), ...(input.cursor === undefined ? {} : { cursor: text(input.cursor) }) }, abort.signal))),
+          tool("graph_neighbors", "One hop of CALLS/REFERENCES/CONTAINS/IMPORTS in immutable HEAD. Incoming results may be incomplete; never infer absence.", object({ symbolId: string, relation: { type: "string", enum: ["CALLS", "REFERENCES", "CONTAINS", "IMPORTS"] }, direction: { type: "string", enum: ["incoming", "outgoing"] }, limit, cursor }, ["symbolId", "relation", "direction", "limit"]), async input => graphResult(() => graph.neighbors({ snapshotId: store.manifest.identity.id, symbolId: text(input.symbolId), relation: text(input.relation) as Relation, direction: text(input.direction) as "incoming" | "outgoing", limit: number(input.limit, 20), ...(input.cursor === undefined ? {} : { cursor: text(input.cursor) }) }, abort.signal))),
+        );
+      }
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}) });
+      if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);
       await controller.start("final_only", store.manifest.changedPaths);
@@ -132,11 +156,12 @@ export class ReviewEngine {
       await toolQueue;
       if (abort.signal.aborted) modelError = timedOut ? "Review time budget exhausted" : budgetExceeded ? "Review tool budget exhausted" : "Review cancelled";
       const state = controller.state!;
-      const complete = submitted && Object.values(state.units).every(v => v === "done") && !modelError;
+      const complete = submitted && Object.values(state.units).every(v => v === "done") && !modelError && !graphFailed;
       const outcome: ReviewReport["status"] = complete ? "completed" : abort.signal.aborted && !timedOut && !budgetExceeded ? "cancelled" : modelError && !submitted && !timedOut && !budgetExceeded ? "failed" : "partial";
-      const summary = complete ? finalSummary : [modelError ?? "Incomplete review: final submission or coverage is missing", finalSummary].filter(Boolean).join(". ");
+      const summary = complete ? finalSummary : [modelError ?? (graphFailed ? "Incomplete review: graph query/build failed; empty results do not establish a clean change" : "Incomplete review: final submission or coverage is missing"), finalSummary].filter(Boolean).join(". ");
       await controller.dispatch({ type: "run.finished", outcome, summary });
       const report = controller.report(); manifest.usage = runtime.usage();
+      manifest.metrics = { toolCalls, graphToolCalls: graph.metrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graph.metrics };
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);
       return { kind: "report", runId, report, ...paths };

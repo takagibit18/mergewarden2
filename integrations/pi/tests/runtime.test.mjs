@@ -62,7 +62,7 @@ test('real Pi loop executes only frozen-source tools and delivers a report entir
     return [{type:'text',text:'Done.'}];
   });
   const originalFetch=globalThis.fetch; globalThis.fetch=async()=>{throw Error('Network forbidden');}; t.after(()=>{globalThis.fetch=originalFetch;});
-  const result=await new ReviewEngine(options=>createPiRuntime(options,runtime)).run({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model:{provider:'fixture',modelId:'offline'}});
+  const result=await new ReviewEngine(options=>createPiRuntime(options,runtime)).run({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model:{provider:'fixture',modelId:'offline'},evaluation:{tools:'text-only'}});
   assert.equal(result.report.status,'completed'); assert.deepEqual(await readReport(f.state,result.runId),result.report);
   assert.doesNotMatch(seenContext.systemPrompt,/UNTRUSTED_MARKER/); assert.deepEqual(seenContext.tools.map(t=>t.name).sort(),['read_diff','read_source','search_text','submit_review']);
   const rows=(await readFile(join(f.state,'runs',result.runId,'session.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);

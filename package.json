@@ -17,7 +17,9 @@
     "test:integrations": "npm --prefix integrations/pi test && npm --prefix integrations/tree-sitter test",
     "typecheck:integrations": "npm --prefix integrations/pi run typecheck && npm --prefix integrations/tree-sitter run typecheck",
     "verify": "npm run check && npm run typecheck:integrations && npm run test:integrations && npm run demo && npm run status",
-    "cli": "node --experimental-strip-types src/cli/main.ts"
+    "cli": "node --experimental-strip-types src/cli/main.ts",
+    "eval": "node --experimental-strip-types eval/run.mjs",
+    "graph:smoke": "node --experimental-strip-types eval/smoke.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3",

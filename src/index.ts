@@ -10,5 +10,6 @@ export * from "./protocol/contracts.ts";
 
 export { ReviewEngine as LocalReviewEngine } from "./engine/review.ts";
 export { SnapshotStore } from "./snapshot/store.ts";
+export { LazyCodeGraph } from "./graph/lazy-graph.ts";
 export { history, readReport } from "./engine/reports.ts";
 export type { ReviewOptions, ReviewResult, RuntimeFactory } from "./engine/contracts.ts";

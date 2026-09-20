@@ -5,6 +5,8 @@ export interface ModelSelection { provider: string; modelId: string }
 export interface ReviewOptions {
   repositoryPath: string; stateDir: string; input?: ReviewInput; rerunId?: string;
   model: ModelSelection; timeoutMs?: number; maxToolCalls?: number; signal?: AbortSignal;
+  /** Internal ablation only; never exposed as a product mode. */
+  evaluation?: { tools: "text-only" | "text+graph" };
 }
 export interface RuntimeTool { name: string; description: string; schema: Record<string, unknown>; execute(input: unknown): Promise<unknown> }
 export interface ReviewRuntime {
@@ -13,8 +15,9 @@ export interface ReviewRuntime {
   abort(): Promise<void>;
   dispose(): void;
   usage(): { input: number; output: number; total: number };
+  configuration?(): { systemPrompt: string; thinkingLevel: string; modelApi: string; modelBaseUrl: string; modelMaxTokens: number };
 }
-export type RuntimeFactory = (options: { repositoryPath: string; runDir: string; stateDir: string; model: ModelSelection; tools: RuntimeTool[] }) => Promise<ReviewRuntime>;
+export type RuntimeFactory = (options: { repositoryPath: string; runDir: string; stateDir: string; model: ModelSelection; tools: RuntimeTool[]; evaluation?: boolean }) => Promise<ReviewRuntime>;
 export interface FinalSubmission { summary: string; reviewedPaths: string[]; findings: FindingCandidate[] }
 export interface RunManifest {
   schemaVersion: 1; runId: string; snapshotId: string; repositoryPath: string; model: ModelSelection;
@@ -22,6 +25,9 @@ export interface RunManifest {
   status: "running" | "delivered" | "delivery_failed"; createdAt: string; finishedAt?: string;
   parentRunId?: string; outcome?: ReviewReport["status"]; error?: string;
   reportSha256?: string; markdownSha256?: string; usage?: { input: number; output: number; total: number };
+  metrics?: { toolCalls: number; graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"] };
+  toolExposure?: "text-only" | "text+graph";
+  runtimeConfiguration?: ReturnType<NonNullable<ReviewRuntime["configuration"]>>;
 }
 export type ReviewResult = { kind: "no_changes"; snapshotId: string } | { kind: "report"; runId: string; report: ReviewReport; reportPath: string; markdownPath: string };
 export type ReviewProgress = { phase: "preparing" | "reviewing" | "tool" | "delivering"; runId?: string; tool?: string; toolCalls?: number };

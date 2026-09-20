@@ -1,8 +1,46 @@
 # 实测记录 · 2026-09-20
 
+## v0.2 本地验收
+
+修改前在完整 ReviewEngine 提交 5422ba7 跑过全部验证：**90 passed，0 failed，0 skipped**。随后开发分支安全快进到同树的 v0.1 合并提交 9258306；未改写 main。初始 6 处用户文档改动已另存仓库外补丁并保留。
+
+最终 Windows / Node 24.12.0 的 `npm run verify` 退出码 **0**：核心/CLI/快照/引擎/评测 **77**、真实 Pi SDK **16**、真实 Python grammar/resolver/store/Golden **37**，共 **130 passed，0 failed，0 skipped**；三组类型检查、demo 和 status 均通过。原 90 项用例继续保留；声明限定名增加模块前缀，原 grammar 断言随 contract 更新。
+
+新增验证包括同名隔离、嵌套/类作用域、遮蔽、六种 import、解析缺口、动态 receiver/metaclass；snapshot 隔离、确定性重建、损坏/未完成/版本过期/覆盖篡改缓存、分页、工作线程取消；Graph 错误阻止 completed clean、真实 Pi 工具循环、Graph 后伪造 source hash 仍须实际 read_source；Text-only 不建图；20 例 Git SHA 重建与快照读取、指标及一对一语义匹配。
+
+### 真实 Git Snapshot 图 smoke（受控源码，真实组件）
+
+对冻结 `cross-key` base/head 提交调用真实 SnapshotStore → Tree-sitter → resolver → SQLite → graph_lookup/graph_neighbors → source。schema=2，resolver=python-scopes-2；2 eligible / 2 indexed / 0 parse-incomplete，1 resolved call / 0 candidate / 0 unresolved。查询正确返回 view.py 到 user.user_record 的调用及其源码范围。
+
+一次本机测量：cold build **123.688 ms**，包含工作线程启动的 cold request **226.341 ms**，同 snapshot cache 的 warm request **104.739 ms**；两次 store query 合计 **2.094 ms**。warm request 包含线程启动、数据库及内容摘要校验，不能称为纯 SQLite 查询耗时。这只是两个文件的单次 smoke，不是大仓性能结论。
+
+### Text-only / Text+Graph 工程实验
+
+同一冻结 20 例、相同 snapshot/模型配置/提示词基线/120 秒/40 工具预算运行两组，**40/40 完整交付**；20 对实际配置全部一致（除 graph capability），运行前后实现摘要一致。输出逐例 raw、mapping、报告、原生 Pi JSONL 与汇总指标。此处使用真实 Pi SDK 和刻意空预测的 **scripted-offline provider**，没有调用真实模型。
+
+| 指标 | Text-only | Text+Graph |
+|---|---:|---:|
+| 完整交付 | 20/20 | 20/20 |
+| 工具调用 / Graph 调用 | 42 / 0 | 62 / 20 |
+| 实测 review latency 总计 | 27,085.019 ms | 31,744.586 ms |
+| 实测 graph build 总计 | 0 ms | 2,187.914 ms |
+| **合成** input/output/total tokens | 620 / 310 / 930 | 820 / 410 / 1230 |
+| 脚本空预测的 precision / recall / F1 | null / 0 / 0 | null / 0 / 0 |
+| 脚本 clean FPR / PR recall / cross-file recall | 0 / 0 / 0 | 0 / 0 / 0 |
+
+以上质量数字仅检验指标计算，不描述 GLM 或 Graph 的审查质量；token 也是替身设定值，不能用于真实费用比较。逐例 Graph diagnostics 在 raw/metrics 中保留，未仅保存均值。
+
+Gold 在模型调用前冻结：12 defect（4/4/2/2 分类）、8 hard-negative clean；corpus SHA-256 `ef748a3c5916190857e5cb8e4753b23274f7206833ada681763dd328b2b44939`。案例与理由由本次实现预先编写，尚未经独立人工标注复核，不冒充真实公开项目缺陷历史。
+
+原始本机产物位于仓库外 `../output/mergewarden-v02/`：`baseline-verify.log`、`verify-release-candidate.log`、`smoke-release-candidate/smoke.json`、`ab-release-candidate/{raw,mapping,metrics}.json`。不把这些任务报告和运行状态加入 Git。
+
+### 未完成的验收
+
+用户已选择 bigmodel/glm-5.3-flash 与 MERGEWARDEN_API_KEY，但当前运行环境尚未读取到该变量；**真实模型 A/B 未执行，Graph 增量质量未证明**。真实运行入口及匹配步骤见 [eval](../eval/README.md)。当前 v0.2 分支尚未推送，新的 Windows/Linux × Node 22/24 远端 CI 未执行；本机通过不能代替远端四组矩阵。没有打 v0.2.0 标签，也不宣称全部工程闭环门槛已经满足。
+
 ## v0.1 离线实现验证
 
-本机：Windows，Node.js 24.12.0、npm 11.6.2、Git 2.53.0。最新完整 `npm run verify` 退出码 0：
+历史基线：Windows，Node.js 24.12.0、npm 11.6.2、Git 2.53.0。修改前完整 `npm run verify` 退出码 0：
 
 | 检查 | 结果 |
 |---|---|
@@ -44,4 +82,4 @@ M0 历史基线 51 项及首次四组矩阵通过记录：[M0 CI](https://github
 
 M0 发现的首条 assistant 前延迟持久化已通过公开 API 的独占空文件初始化解决，原行为测试保留。当前强制同步及校验，不宣称 exactly-once 或数据库事务。
 
-完整图 resolver/SQLite、VS Code/VSIX、Windows/WSL 产品验收、20 个标注样例及 3 对公开项目评测尚未实施。没有真实供应商被标为“已实测”，也未发布 Marketplace、公共许可证或版本标签。
+v0.2 已实现 Python resolver/SQLite 与 20 个受控案例，详见上方实测。VS Code/VSIX、Windows/WSL 产品验收、独立人工黄金集及 3 对公开项目评测尚未完成。没有真实供应商被标为“已实测”，也未发布 Marketplace、公共许可证或版本标签。

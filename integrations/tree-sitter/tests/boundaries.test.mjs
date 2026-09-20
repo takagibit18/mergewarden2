@@ -25,8 +25,8 @@ test("Unicode symbols and line references retain their snapshot identity", async
   const repeated = await extractor.extract(input);
   const next = await extractor.extract({ ...input, snapshotId: "s2" });
   assert.equal(first.parseComplete, true);
-  assert.equal(first.symbols[0].qualifiedName, "保存");
-  assert.equal(first.symbols[0].startLine, 2);
+  assert.equal(first.symbols[1].qualifiedName, "unicode.保存");
+  assert.equal(first.symbols[1].startLine, 2);
   assert.equal(first.calls[0].startLine, 5);
   assert.equal(first.symbols[0].id, repeated.symbols[0].id);
   assert.notEqual(first.symbols[0].id, next.symbols[0].id);
