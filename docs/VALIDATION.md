@@ -34,9 +34,13 @@ Gold 在模型调用前冻结：12 defect（4/4/2/2 分类）、8 hard-negative 
 
 原始本机产物位于仓库外 `../output/mergewarden-v02/`：`baseline-verify.log`、`verify-release-candidate.log`、`smoke-release-candidate/smoke.json`、`ab-release-candidate/{raw,mapping,metrics}.json`。不把这些任务报告和运行状态加入 Git。
 
+### 远端 CI
+
+实现提交 `7a38870` 已推送至 `feat/python-codegraph-evaluation`，并创建 [草稿 PR #3](https://github.com/takagibit18/mergewarden2/pull/3)，基于包含完整 v0.1 引擎的 `feat/immutable-snapshots`。该提交的 [push CI](https://github.com/takagibit18/mergewarden2/actions/runs/35500506139) 四组矩阵全部通过：Windows/Linux × Node 22.19.0/24.12.0，每组执行锁定依赖安装和完整 `npm run verify`。未改写 main，未 force push。
+
 ### 未完成的验收
 
-用户已选择 bigmodel/glm-5.3-flash 与 MERGEWARDEN_API_KEY，但当前运行环境尚未读取到该变量；**真实模型 A/B 未执行，Graph 增量质量未证明**。真实运行入口及匹配步骤见 [eval](../eval/README.md)。当前 v0.2 分支尚未推送，新的 Windows/Linux × Node 22/24 远端 CI 未执行；本机通过不能代替远端四组矩阵。没有打 v0.2.0 标签，也不宣称全部工程闭环门槛已经满足。
+用户已选择 bigmodel/glm-5.3-flash 与 MERGEWARDEN_API_KEY，但当前运行环境尚未读取到该变量；**真实模型 A/B 未执行，Graph 增量质量未证明**。真实运行入口及匹配步骤见 [eval](../eval/README.md)。没有打 v0.2.0 标签；真实质量验收与独立人工标注复核仍待完成。
 
 ## v0.1 离线实现验证
 
