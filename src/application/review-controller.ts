@@ -36,6 +36,8 @@ export class ReviewController {
     if (recovered) {
       requireCondition(recovered.runId === this.runId && recovered.snapshot.id === this.snapshot.id &&
         recovered.snapshot.repositoryId === this.snapshot.repositoryId &&
+        JSON.stringify(recovered.snapshot.baseVersion) === JSON.stringify(this.snapshot.baseVersion) &&
+        JSON.stringify(recovered.snapshot.headVersion) === JSON.stringify(this.snapshot.headVersion) &&
         recovered.snapshot.baseCommit === this.snapshot.baseCommit && recovered.snapshot.headCommit === this.snapshot.headCommit &&
         recovered.snapshot.inputFingerprint === this.snapshot.inputFingerprint &&
         recovered.snapshot.configurationFingerprint === this.snapshot.configurationFingerprint, "resume identity mismatch");

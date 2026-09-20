@@ -5,8 +5,10 @@ export type Severity = "critical" | "high" | "medium" | "low";
 export interface SnapshotIdentity {
   readonly id: string;
   readonly repositoryId: string;
-  readonly baseCommit: string;
-  readonly headCommit: string;
+  readonly baseCommit?: string;
+  readonly headCommit?: string;
+  readonly baseVersion?: { kind: "commit" | "content" | "empty"; id: string };
+  readonly headVersion?: { kind: "commit" | "content" | "empty"; id: string };
   readonly inputFingerprint: string;
   readonly configurationFingerprint: string;
 }
