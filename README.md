@@ -1,60 +1,47 @@
 # MergeWarden 2
 
-基于 Pi runtime 的证据优先代码审查引擎。当前交付为 **M0 可验证开发基线**：领域核心、原生会话适配、真实 Python 语法提取、锁定依赖和跨平台 CI。
+基于 Pi 的只读代码审查引擎。当前已实现 **v0.1 审查闭环与 CLI，停在真实模型验收前**。原有 51 项测试保留；离线验证覆盖真实 Pi SDK 的工具循环、不可变源码证据和失败交付路径。尚未宣称模型审查效果，也未打 v0.1.0 标签。
 
-**真实仓库审查尚未实现。** `demo` 是 synthetic 控制流示例；`review` 明确退出并报未实现。不可变快照、源码工具、模型审查闭环、完整 CodeGraph、IDE 和发布能力按路线图继续建设。
+## 开始使用
 
-## 快速开始
+要求 Node.js **22.19+**、Git 和 npm。
 
-要求 Node.js **22.19+** 和 npm。CI 覆盖 Node 22.19.0 / 24.12.0、Windows / Linux。
-
-```bash
-git clone https://github.com/takagibit18/mergewarden2.git
-cd mergewarden2
+```sh
 npm run setup
 npm run verify
+npm run cli -- help
+npm run cli -- models
 ```
 
-`setup` 分别对根目录、Pi 和 Tree-sitter 执行 `npm ci --ignore-scripts`，使用三个真实 lockfile。安装过程不执行第三方包脚本；测试不需要模型密钥，不发送模型请求。
+安装使用三个锁定依赖文件且禁用安装脚本。测试不需要 API Key，不访问真实模型。`models` 读取固定 Pi 版本内置目录及应用注册的智谱 Flash 配置；目录存在表示接入能力，不表示该供应商已实测。
 
-| 命令 | 用途 |
+配置和首次验收见 **[真实模型验收指南](docs/LIVE_ACCEPTANCE.md)**；已选 GLM-5.3-Flash 可直接按 **[智谱配置](docs/BIGMODEL.md)** 操作。引擎只从命令行明确指定的环境变量读取密钥，不自动采用仓库配置、`.pi`、OAuth 或现有 Pi 登录。
+
+```sh
+npm run cli -- review --repo /path/to/repository --base BASE_SHA --head HEAD_SHA --provider PROVIDER --model MODEL_ID --api-key-env MERGEWARDEN_API_KEY
+```
+
+Windows 默认数据目录是 `%LOCALAPPDATA%/MergeWarden2`，其他环境为 `~/MergeWarden2`；可用 `--state PATH` 指定。数据必须位于被审仓库之外。JSON 结果写到标准输出，过程信息写到标准错误。结果为 `completed` 且报告和交付记录保存成功才算完整交付；缺失最终提交、预算耗尽、错误或取消会明确区分。无改动返回 `no_changes`，不创建模型会话。
+
+## 当前模块
+
+| 模块 | 能力 |
 |---|---|
-| `npm test` | 39 项零依赖核心测试；无需先安装适配器 |
-| `npm run check` | 核心测试及严格类型检查 |
-| `npm run test:integrations` | Pi 原生 JSONL、隔离边界与真实 Python grammar 测试 |
-| `npm run typecheck:integrations` | 两个适配器类型检查 |
-| `npm run verify` | 核心、集成、类型检查、demo 和 status |
-| `npm run demo` | 明确标记 synthetic 的控制流示例 |
-| `npm run status` | 实现边界概览 |
+| `src/snapshot` | 提交比较、HEAD→index、HEAD→已保存磁盘内容；显式选择未跟踪文件；冻结及复用、源码、差异分页、文本搜索 |
+| `src/engine` | 单次审查、最终候选校验、证据完整性、覆盖检查、预算、取消、原快照重跑 |
+| `integrations/pi` | 原生会话与业务 CustomEntry、启动前落盘、同步检查、模型工具循环、精确工具白名单 |
+| `src/cli` | 审查、模型目录、报告历史、证据读取、环境诊断、死进程遗留锁清理 |
+| `integrations/tree-sitter` | 已有 Python 真 grammar 测试；语义 resolver、SQLite 图查询留到 v0.2 |
 
-仅开发领域核心时可执行 `npm ci --ignore-scripts`，无需安装 Pi 或解析器。
+CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code 的选择界面、证据跳转、stale 提示及 Windows/WSL 产品验收留到后续版本。忽略文件和未保存缓冲区不纳入。文本工具不会执行仓库代码。
 
-## 当前能力与边界
+默认预算 **10 分钟、100 次工具调用**，可用 `--timeout-ms` / `--max-tools` 调整。记录 token 用量，不估算未知价格。候选通过结构和证据 hash 校验后作为人工复核建议保存，这不证明缺陷语义成立。
 
-- 领域事件、候选提交协议、证据 hash、恢复身份约束与 DecisionAdvisor off/shadow/advisory 调度已测试。
-- Pi 0.84.1 原生 CustomEntry 写入、会话重开和当前分支重放已做本地 smoke；会话起点关闭默认工具及目标仓库资源加载。
-- **Pi 在首次 assistant 消息前可能不创建 JSONL。append 不等于 fsync。** 强持久化、崩溃恢复和完整业务接线仍是 M1 门槛，见 [Pi 说明](integrations/pi/README.md)。
-- Python 使用 web-tree-sitter 0.27.0 + 官方 tree-sitter-python 0.25.0 WASM；运行前检查 SHA-256 和 ABI。调用目标保持 `unresolved`，尚无 import resolver 或图查询服务。
-- Jev、IDE、GitHub 评论、MCP 和 ACP 仍为接口或文档边界。许可证未选定，仓库暂按私有开发仓库管理。
+## 验证与后续
 
-## 布局
+- `npm run verify`：核心、CLI、快照、引擎、两个适配器、类型检查及明确标注的 synthetic demo。
+- [实现状态](docs/IMPLEMENTATION_STATUS.md) · [验证记录](docs/VALIDATION.md) · [分版本路线](docs/ROADMAP.md) · [决策](docs/DECISIONS.md)。
+- [开发约束](AGENTS.md) · [安全边界](SECURITY.md)。仓库保持私有，公共许可证尚未选择。
+- [原架构正文](docs/ARCHITECTURE.md) 和 [DOCX](docs/MergeWarden2_Top_Level_Design.docx) 是输入骨架的历史材料；当前实现以状态表为准。
 
-```text
-src/domain, application       与外部 SDK 解耦的领域规则
-src/ports, protocol           会话、源码、快照与引擎契约
-src/advisor, graph            可选建议与图查询契约
-integrations/pi               Pi SDK、Hook、CustomEntry 与 smoke 测试
-integrations/tree-sitter      固定 grammar、语法提取与真实解析测试
-integrations/{vscode,github,mcp,acp,jev}  后续适配边界
-schemas                       SQLite schema 草案
-scripts                       锁定依赖安装、设计文档生成
-.github/workflows             Windows/Linux × Node 22/24 验证
-```
-
-## 文档
-
-- [实现状态](docs/IMPLEMENTATION_STATUS.md)、[实测记录](docs/VALIDATION.md)、[实施顺序](docs/ROADMAP.md)
-- [决策索引](docs/DECISIONS.md)、[开发约束](AGENTS.md)、[贡献指南](CONTRIBUTING.md)、[安全边界](SECURITY.md)
-- [原始架构正文](docs/ARCHITECTURE.md)、[原始顶层设计 DOCX](docs/MergeWarden2_Top_Level_Design.docx)：保留输入骨架的历史设计快照，其中的“未安装/未验证”描述属于原交付时点；当前状态以上述状态表与验收记录为准。
-
-只有一个 agentic 审查工作流；图与文本是互补工具。候选提交、语义验真、对外发布保持独立。不将 schema 通过、空结果或 agent_end 当作审查完成。
+VSIX、完整 CodeGraph、WSL 产品验收、20 个标注样例和 3 对公开项目提交评测尚未交付。没有 Marketplace 发布、自动修复、自动合并、PR 评论或 Jev 调用。

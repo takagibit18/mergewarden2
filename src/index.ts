@@ -7,3 +7,8 @@ export * from "./graph/contracts.ts";
 export * from "./advisor/contracts.ts";
 export * from "./advisor/coordinator.ts";
 export * from "./protocol/contracts.ts";
+
+export { ReviewEngine as LocalReviewEngine } from "./engine/review.ts";
+export { SnapshotStore } from "./snapshot/store.ts";
+export { history, readReport } from "./engine/reports.ts";
+export type { ReviewOptions, ReviewResult, RuntimeFactory } from "./engine/contracts.ts";

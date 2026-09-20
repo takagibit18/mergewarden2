@@ -1,25 +1,20 @@
-# 实现状态 · 2026-09-20
+# 当前实现状态 · 2026-09-20
 
-本次完成 M0 开发仓库搭建，不等同于 M1 产品交付。原始架构 DOCX / Markdown 保留为设计历史快照。
+v0.1 的本地实现已接通，停在用户配置真实模型的验收门槛。未打版本标签，未将整体 MVP 标记完成。
 
-| 模块 | 当前状态 | 尚未具备的能力 |
+| 模块 | 状态 | 未完成边界 |
 |---|---|---|
-| 仓库工程化 | 三个真实 npm lockfile、一键安装、统一验证、四组跨平台 CI 配置 | 发布包、公共许可证 |
-| ReviewController / reducer | 39 项核心测试；严格类型检查 | 真实语义验真、产物事务交付 |
-| final_only / incremental_candidates | 两种协议可测试 | 实际模型对照收益 |
-| SourceReader / SnapshotProvider | 仅接口 | staged/worktree/commit 不可变快照 |
-| Evidence hash check | 完整性检查已测试 | 结论语义正确性 |
-| DecisionAdvisor / Noop / Rule | off/shadow/advisory 单测 | Jev 效果、无额外时延保证 |
-| MemoryJournal | 仅测试和 synthetic demo | 生产持久化 |
-| PiSessionJournal | Pi 0.84.1 实装；原生 JSONL 重开、当前分支、恢复身份与事件顺序测试 | 首次回复前可靠持久化、fsync、崩溃恢复 |
-| Pi session / Hook | 真实 SDK 创建、空工具、目标仓库指令/扩展隔离 smoke | 完整业务绑定、源码工具、模型审查 |
-| Tree-sitter Python | 真 grammar 测试；锁定 npm 包、commit、ABI 与 SHA-256；语法错误和 Unicode 测试 | 完整语言语义和调用目标解析 |
-| 导入/作用域 resolver | 未实现 | 可靠的跨文件调用绑定 |
-| SQLite 图存储 | schema 草案 | store/query/incremental adapter |
-| Jev / IDE / PR / MCP / ACP | 文档与契约边界 | 生产实现 |
+| 快照 | 提交、暂存区、已保存工作区；仓库外内容存储；版本身份；冻结竞争检查 | VS Code 的用户选择及产品验收 |
+| 文本取证 | 源码行号/hash、差异分页、字面搜索；明确截断/不支持文件 | 非文本内容的语义审查 |
+| 业务引擎 | final_only；候选结构/证据/覆盖核验；取消、工具和时间预算 | 缺陷语义正确性须人工判断 |
+| Pi | 单会话内置供应商及国内 BigModel GLM-5.3-Flash；明确 API Key；精确工具白名单；不加载仓库指令/扩展 | 真实供应商尚未调用/实测；OAuth 不支持 |
+| 原生日志 | 独占空文件经公开 SessionManager.open 初始化；首条回复前持久化；fsync 和写入故障检查 | 不宣称数据库级事务或 exactly-once |
+| 报告和恢复 | JSON/Markdown 原子替换；交付清单最后写入；历史校验；原快照新 run | 中断模型会话不续接；运行中硬退出可能留锁 |
+| CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
+| Python 图 | 原有 5 项真 grammar 测试保留 | resolver、SQLite、图查询、工作线程待 v0.2 |
+| VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
+| 评测 | 初次模型 smoke 用例已在调用前标注 | 完整 20 例、3 对公开项目、文本/图比较尚未执行 |
 
-## M1 仍需满足
+资源上限：单文件 1 MiB，捕获最多 10,000 个路径、100 MiB 内容，最多 200 个变更路径；源码最多每次 200 行/32 KiB，差异按页读取，搜索最多 100 个结果。超限会拒绝、明确不可审查或返回截断；不能据此认定无缺陷。工作区符号链接路径拒绝读取；提交/index 的符号链接、子模块、二进制、超大文件不能计入文本审查覆盖。
 
-真实 review 命令仍未实现。下一步先实现不可变源码快照和只读工具，再接 Pi 业务 Controller、模型输出、取消与报告落盘。
-Pi 新会话在首条 assistant 消息前可能不落盘，不能将当前适配器当作可靠业务日志。也不能通过注入假 assistant 消息来伪造生产审查进度。
-业务 completed 目前仅表示领域状态闭合；产品必须在报告可靠写入后确认完整交付。
+持久化故障会使本次 run 无法确认交付。历史只把清单及产物 hash 一致的记录当作已交付；`running` 仅是最后写入状态，不代表进程仍活跃。`doctor` 检查锁拥有者，`unlock` 仅清理已退出进程的锁。临时文件可能在硬退出后遗留；不自动删除历史快照和报告。
