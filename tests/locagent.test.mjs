@@ -55,3 +55,11 @@ test('snapshot boundary, incomplete coverage, output caps and disabled tools',()
  assert.throws(()=>new LocAgentRetrieval(fixture(),{traverseEnabled:false}).traverse(walk()),/disabled/);
  assert.throws(()=>new LocAgentRetrieval(fixture()).traverse(walk({maxHops:21})),/maxHops/);
 });
+test('reference invalid traversal root recovery returns BM25 hints without invented edges',()=>{
+ const r=new LocAgentRetrieval(fixture());
+ const page=r.traverse(walk({startEntities:['auth'],maxBytes:2048}));
+ assert.equal(page.status,'ok');assert.equal(page.items.length,0);assert.equal(page.edges.length,0);
+ assert.equal(page.hints[0].candidates[0].entityId,'m');assert.equal(page.hints[0].matchMode,'bm25_entity');
+ assert.equal(page.coverage.indexedFiles,6);assert.ok(Buffer.byteLength(JSON.stringify(page))<=2048);
+ const retry=r.traverse(walk({startEntities:[page.hints[0].candidates[0].entityId]}));assert.equal(retry.items[0].entityId,'m');
+});

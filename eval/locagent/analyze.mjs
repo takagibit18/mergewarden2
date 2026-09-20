@@ -8,11 +8,14 @@ const mapping=JSON.parse(await readFile(join(output,'mapping.json')));
 const byArm=Object.fromEntries(['T0','G0','G1'].map(arm=>{
  const runs=raw.runs.filter(r=>r.arm===arm),traces=runs.map(r=>r.trace),metrics=traces.map(t=>t?.metrics);
  const numeric=metrics.find(Boolean)??{};
- const sums=Object.fromEntries(Object.keys(numeric).filter(k=>typeof numeric[k]==='number'||numeric[k]===null).map(k=>[k,metrics.every(m=>m&&typeof m[k]==='number')?metrics.reduce((n,m)=>n+m[k],0):null]));
+ const sums=Object.fromEntries(Object.keys(numeric).filter(k=>!['firstGraphToolOrdinal','novelNeighborRate'].includes(k)&&(typeof numeric[k]==='number'||numeric[k]===null)).map(k=>[k,metrics.every(m=>m&&typeof m[k]==='number')?metrics.reduce((n,m)=>n+m[k],0):null]));
  const findings=traces.flatMap(t=>t?.findings??[]);
  const maps=mapping.filter(m=>runs.some(r=>r.runKey===m.runKey));
  const scored=maps.every(m=>m.status==='complete')?score(corpus.cases,runs.map(r=>({...r,arm:'text-only'})),maps):null;
- return [arm,{attempted:runs.length,complete:runs.filter(r=>r.delivered&&r.status==='completed').length,metrics:sums,firstGraphToolOrdinals:metrics.map(m=>m?.firstGraphToolOrdinal??null),novelSourceConversionRate:sums.novelEntities?sums.novelEntityToSource/sums.novelEntities:null,searchHitRate:sums.searchCalls?sums.searchHits/sums.searchCalls:null,attribution:Object.fromEntries(['text_only','graph_assisted','ambiguous'].map(p=>[p,findings.filter(f=>f.discoveryPath===p).length])),elapsedMs:runs.reduce((n,r)=>n+r.elapsedMs,0),quality:scored?.byArm['text-only'].quality??null,caseMappings:scored?.perCase??null}];
+ const graphDiagnostics=runs.map(r=>({runKey:r.runKey,...r.manifest?.metrics?.graph}));
+ const measured=graphDiagnostics.every(g=>g.calls!==undefined&&g.calls===g.coldRequestMs.length+g.warmRequestMs.length);
+ const graphTiming={buildMs:measured?graphDiagnostics.reduce((n,g)=>n+g.buildMs,0):null,coldRequestMs:graphDiagnostics.flatMap(g=>g.coldRequestMs??[]),warmRequestMs:graphDiagnostics.flatMap(g=>g.warmRequestMs??[]),allRequestsMeasured:measured};
+ return [arm,{attempted:runs.length,complete:runs.filter(r=>r.delivered&&r.status==='completed').length,metrics:sums,firstGraphToolOrdinals:metrics.map(m=>m?.firstGraphToolOrdinal??null),novelSourceConversionRate:sums.novelEntities?sums.novelEntityToSource/sums.novelEntities:null,searchHitRate:sums.searchCalls?sums.searchHits/sums.searchCalls:null,attribution:Object.fromEntries(['text_only','graph_assisted','ambiguous'].map(p=>[p,findings.filter(f=>f.discoveryPath===p).length])),elapsedMs:runs.reduce((n,r)=>n+r.elapsedMs,0),graphTiming,graphDiagnostics,quality:scored?.byArm['text-only'].quality??null,caseMappings:scored?.perCase??null}];
 }));
 const verified=raw.sourceUnchanged&&raw.armAudits.length===raw.selected.length&&raw.armAudits.every(a=>a.verified)&&raw.runs.length===raw.selected.length*3&&raw.runs.every(r=>r.trace&&!r.trace.traceIssues.length);
 const g1=byArm.G1.metrics,g0=byArm.G0.metrics;

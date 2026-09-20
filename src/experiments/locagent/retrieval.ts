@@ -95,7 +95,8 @@ export class LocAgentRetrieval {
     const all=[...grouped.values()];let truncated=all.length>input.topK;
     const result={...this.envelope(),items:[] as Record<string,unknown>[],truncated:false,stages,resultCount:0,renderMode:'fold',retrievalMode:[...new Set(hits.map(h=>h.matchMode))],responseBytes:0};
     for(const group of all.slice(0,input.topK)){
-      const first=group[0]!;let mode=this.config.sourcePolicy==='fold'?'fold':this.config.sourcePolicy==='preview'&&first.renderMode==='full'?'preview':first.renderMode;
+      const priority:Record<string,number>={full:0,preview:1,fold:2};
+      const first=[...group].sort((a,b)=>priority[a.renderMode]!-priority[b.renderMode]!)[0]!;let mode=this.config.sourcePolicy==='fold'?'fold':this.config.sourcePolicy==='preview'&&first.renderMode==='full'?'preview':first.renderMode;
       if(all.length>3)mode='fold';
       const item={...metadata(first.s),matchMode:first.matchMode,matchModes:[...new Set(group.map(h=>h.matchMode))],renderMode:mode,...(first.score!==undefined?{retrievalScore:first.score}:{}),matches:group.map(h=>({query:h.query,matchMode:h.matchMode,...(h.score!==undefined?{retrievalScore:h.score}:{}),...(h.contentRange?{contentRange:h.contentRange}:{})})),...this.preview(first.s,mode)};
       result.items.push(item);if(size(result)>30_000){result.items.pop();truncated=true;break;}
@@ -114,10 +115,14 @@ export class LocAgentRetrieval {
     requireThat(Array.isArray(input.relationTypeFilter)&&input.relationTypeFilter.every(k=>['CONTAINS','IMPORTS','REFERENCES','CALLS'].includes(k)),'Invalid relation type filter');
     const maxBytes=input.maxBytes??32768;requireThat(Number.isInteger(maxBytes)&&maxBytes>=2048&&maxBytes<=32768,'maxBytes must be 2048..32768');
     const maxHops=Math.min(input.maxHops,this.config.maxHops??20);
-    const roots=input.startEntities.map(id=>{const found=this.exact(id);requireThat(found.length===1,`Unknown or ambiguous HEAD entity: ${id}`);return found[0]!;});
+    const roots:SymbolFact[]=[],hints:{query:string;matchMode:string;candidates:ReturnType<typeof metadata>[]}[]=[];
+    for(const id of input.startEntities){const found=this.exact(id);if(found.length===1)roots.push(found[0]!);else hints.push({query:id,matchMode:'bm25_entity',candidates:this.entities.search(id,10).slice(0,5).map(r=>metadata(this.symbols[r.index]!))});}
     requireThat(new Set(roots.map(r=>r.id)).size<=input.maxNodes,'maxNodes is smaller than the root set');
     const items:Record<string,unknown>[]=[],edges:RelationFact[]=[],lines:string[]=[],nodeIds=new Set<string>(),edgeIds=new Set<string>();
-    const result={...this.envelope(),items,edges,tree:'',truncated:false,maxHops,direction:input.direction,resultCount:0,returnedEdges:0,responseBytes:0};
+    const result={...this.envelope(),items,edges,tree:'',hints,truncated:false,maxHops,direction:input.direction,resultCount:0,returnedEdges:0,responseBytes:0};
+    if(hints.length)result.warnings.push('Invalid start entities were not traversed. BM25 hints identify candidates only; retry with an exact returned entity ID. Empty output does not establish absence.');
+    while(size(result)>maxBytes-512&&hints.some(h=>h.candidates.length)){hints.findLast(h=>h.candidates.length)!.candidates.pop();result.truncated=true;}
+    while(size(result)>maxBytes-512&&hints.length){hints.pop();result.truncated=true;}
     const incoming=new Map<string,RelationFact[]>(),outgoing=new Map<string,RelationFact[]>();
     for(const edge of this.data.relations){outgoing.set(edge.fromId,[...outgoing.get(edge.fromId)??[],edge]);incoming.set(edge.toId,[...incoming.get(edge.toId)??[],edge]);}
     const fits=()=>size({...result,tree:lines.join('\n')})<=maxBytes-512;
@@ -151,7 +156,7 @@ export class LocAgentRetrieval {
     }
     result.tree=lines.join('\n');result.resultCount=items.length;result.returnedEdges=edges.length;
     if(result.truncated)result.warnings.push('Traversal output bound reached; query a narrower root/filter/depth. Omitted nodes do not establish absence.');
-    if(!items.length)throw Error('Even one entity exceeds the requested output bound');
+    if(!items.length&&roots.length)throw Error('Even one entity exceeds the requested output bound');
     return measured(result);
   }
 }

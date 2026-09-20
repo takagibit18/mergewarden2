@@ -22,7 +22,7 @@
     {
       "mechanism": "exactEntitySearch",
       "original": "Human entity ID path.py:qualified name; __init__ fallback",
-      "implementation": "Human ID, immutable stable ID or qualified name, then constructor fallback; missing/ambiguous roots fail explicitly",
+      "implementation": "Human ID, immutable stable ID or qualified name, then constructor fallback; invalid roots return bounded BM25 candidate hints and are not traversed",
       "reason": "Snapshot identity and conservative graph are frozen; extra stable-ID/qualified-name adapters retain exact lookup."
     },
     {
@@ -78,6 +78,12 @@
       "original": "Tree DFS, per-root visited nodes/edges, both branches at root then fixed direction, type filters prune",
       "implementation": "Same traversal control, plus explicit maxNodes/maxBytes/edge cap; candidate path marked unproven",
       "reason": "Safety/cancellation bounds required by task. No source bundled with tree."
+    },
+    {
+      "mechanism": "indexLifecycle",
+      "original": "Persisted/cached BM25 indices",
+      "implementation": "Rebuild sparse index per cancellable worker request; reuse verified snapshot SQLite graph",
+      "reason": "Worker termination owns synchronous cancellation. Extra index latency is measured; this is a lifecycle adaptation and may increase cost."
     }
   ],
   "notReplicated": [
@@ -96,5 +102,6 @@
     "functionalTests": "tests/locagent.test.mjs",
     "offlinePi": "integrations/pi/tests/locagent.test.mjs",
     "qualityClaim": "None; live challenge evidence is required."
-  }
+  },
+  "fidelityCorrection": "ff8c8e1 omitted invalid-root BM25 hints; six reports and one interrupted attempt preserved outside checkout. Corrected regression and all-arm restart, with unchanged cases/model/prompt/budgets."
 }

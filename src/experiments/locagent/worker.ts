@@ -19,7 +19,9 @@ try{
    const start=performance.now();
    const retrieval=new LocAgentRetrieval({snapshotId:id,symbols,relations,sources,coverage:metrics.coverage,warnings:JSON.parse(String(meta.warnings))},workerData.config);
    const indexMs=performance.now()-start,queryStarted=performance.now();
-   const page=workerData.method==='search_entity'?retrieval.search(workerData.input):retrieval.traverse(workerData.input);
+   let page;
+   try{page=workerData.method==='search_entity'?retrieval.search(workerData.input):retrieval.traverse(workerData.input);}
+   catch(error){page={status:'error',snapshotId:id,revision:'head',items:[],truncated:false,coverage:metrics.coverage,warnings:[error instanceof Error?error.message:'Retrieval query failed','Empty results do not establish absence.'],explorationOnly:true};}
    metrics.queryMs=performance.now()-queryStarted;
    parentPort!.postMessage({page,metrics,retrievalIndexMs:indexMs});
   }finally{db.close();}
