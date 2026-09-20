@@ -7,12 +7,14 @@
 | 检查 | 结果 |
 |---|---|
 | 核心、快照、引擎和 CLI | 71 passed / 0 failed / 0 skipped |
-| Pi 原生 SDK | 11 passed / 0 failed / 0 skipped |
+| Pi 原生 SDK | 14 passed / 0 failed / 0 skipped |
 | Python 真 grammar | 5 passed / 0 failed / 0 skipped |
 | 类型检查 | 核心、Pi、Tree-sitter 全部通过 |
 | demo / status | 成功；明确 synthetic 和真实模型未验收 |
 
-共 **87 项通过**，保留原有 51 项，新增 36 项。没有真实模型调用。
+共 **90 项通过**，保留原有 51 项，新增 39 项。没有真实模型调用。
+
+新增国内 BigModel GLM-5.3-Flash 配置；3 项离线测试验证注册、实际 Pi HTTP 请求编解码/工具回合和模拟 401，无真实智谱调用。用户配置命令见 [智谱配置](BIGMODEL.md)。
 
 ### 新增覆盖
 

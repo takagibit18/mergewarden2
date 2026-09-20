@@ -13,9 +13,9 @@ npm run cli -- help
 npm run cli -- models
 ```
 
-安装使用三个锁定依赖文件且禁用安装脚本。测试不需要 API Key，不访问真实模型。`models` 读取固定 Pi 版本内置目录；目录存在表示接入能力，不表示该供应商已实测。
+安装使用三个锁定依赖文件且禁用安装脚本。测试不需要 API Key，不访问真实模型。`models` 读取固定 Pi 版本内置目录及应用注册的智谱 Flash 配置；目录存在表示接入能力，不表示该供应商已实测。
 
-配置和首次验收见 **[真实模型验收指南](docs/LIVE_ACCEPTANCE.md)**。引擎只从命令行明确指定的环境变量读取密钥，不自动采用仓库配置、`.pi`、OAuth 或现有 Pi 登录。
+配置和首次验收见 **[真实模型验收指南](docs/LIVE_ACCEPTANCE.md)**；已选 GLM-5.3-Flash 可直接按 **[智谱配置](docs/BIGMODEL.md)** 操作。引擎只从命令行明确指定的环境变量读取密钥，不自动采用仓库配置、`.pi`、OAuth 或现有 Pi 登录。
 
 ```sh
 npm run cli -- review --repo /path/to/repository --base BASE_SHA --head HEAD_SHA --provider PROVIDER --model MODEL_ID --api-key-env MERGEWARDEN_API_KEY

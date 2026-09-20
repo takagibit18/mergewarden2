@@ -26,3 +26,7 @@ npm test
 真实 API Key、供应商错误类型、模型输出质量与实际价格尚未验收。真实模型调用前按 [验收指南](../../docs/LIVE_ACCEPTANCE.md) 配置。供应商内置接入不等于已实测；依赖额外云配置/OAuth 的供应商不在本轮 CLI 范围。
 
 同步不是数据库事务，也不承诺 exactly-once。产品恢复是原快照的新 run，不继续旧模型会话。Hook 不是沙箱；执行工具和引擎仍负责权限、范围与版本检查。
+
+## 国内智谱 Flash
+
+应用通过公开 registerProvider 增加 `bigmodel/glm-5.3-flash`，固定使用用户确认的 `https://open.bigmodel.cn/api/paas/v4/`。仍由 Pi 执行模型循环与 HTTP 编解码，不读取仓库 models.json。见 [配置与离线验证边界](../../docs/BIGMODEL.md)。

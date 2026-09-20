@@ -4,14 +4,17 @@ import type { TSchema } from "typebox";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { RuntimeFactory } from "../../../src/engine/contracts.ts";
 import { createReviewExtension } from "./extension.ts";
+import { registerBigModel } from "./bigmodel.ts";
 import { PiSessionJournal } from "./journal.ts";
 export async function createModelRuntime(provider?: string, key?: string): Promise<ModelRuntime> {
-  return ModelRuntime.create({ modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
+  const runtime = await ModelRuntime.create({ modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
     credentials: {
       async read(id) { return id === provider && key ? { type: "api_key", key } : undefined; },
       async list() { return provider && key ? [{ providerId: provider, type: "api_key" }] : []; },
       async modify() { throw new Error("Credential writes and OAuth are disabled"); }, async delete() { throw new Error("Credential writes are disabled"); },
     } });
+  registerBigModel(runtime);
+  return runtime;
 }
 export async function listModels(provider?: string): Promise<{ provider: string; id: string; name: string }[]> {
   const runtime = await createModelRuntime();
@@ -29,7 +32,7 @@ export function createPiRuntimeFactory(apiKey: string): RuntimeFactory {
 /** Injecting a runtime allows offline SDK integration tests without changing the production loop. */
 export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], modelRuntime: ModelRuntime): ReturnType<RuntimeFactory> {
   const model = modelRuntime.getModel(options.model.provider, options.model.modelId);
-  if (!model) throw new Error("Configured provider/model is not in the pinned Pi catalog; no fallback is allowed");
+  if (!model) throw new Error("Configured provider/model is not in the configured review catalog; no fallback is allowed");
   const settingsManager = SettingsManager.inMemory();
   const allowlist = new Set(options.tools.map(t => t.name));
   const resourceLoader = new DefaultResourceLoader({ cwd: options.runDir, agentDir: options.runDir, settingsManager,
