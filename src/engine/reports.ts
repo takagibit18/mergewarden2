@@ -7,7 +7,7 @@ export function runPath(state: string, id: string): string {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error("Invalid run id");
   return join(state, "runs", id);
 }
-const clean = (text: string) => text.replace(/[<>]/g, c => c === "<" ? "&lt;" : "&gt;").replace(/[\r\n]+/g, " ");
+const clean = (text: string) => text.replace(/&/g, "&amp;").replace(/[<>]/g, c => c === "<" ? "&lt;" : "&gt;").replace(/[\\\x60*_[\]{}()#!|]/g, c => "\\" + c).replace(/[\r\n]+/g, " ");
 export function markdown(report: ReviewReport): string {
   return [`# MergeWarden review: ${report.status}`, "", `Run: ${report.runId}`, `Snapshot: ${report.snapshot.id}`, "", clean(report.summary), "",
     "Advisory findings. Source integrity checks do not independently prove semantic correctness.", "",
