@@ -9,7 +9,7 @@ const run=async(args,env={})=>{try{return {code:0,...await exec(process.execPath
 
 test('CLI help and status identify the real-model gate',async()=>{
   const help=await run(['help']); assert.equal(help.code,0); assert.match(help.stdout,/api-key-env/);
-  const status=await run(['status']); assert.equal(JSON.parse(status.stdout).liveModelValidated,false);
+  const status=await run(['status']); const value=JSON.parse(status.stdout); assert.equal(value.liveModelValidated,true); assert.equal(value.liveModelValidation.provider,'bigmodel'); assert.match(value.liveModelValidation.scope,/timeout/);
 });
 
 test('CLI rejects missing explicitly named credentials without starting a model',async t=>{

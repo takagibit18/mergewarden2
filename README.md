@@ -1,6 +1,6 @@
 # MergeWarden 2
 
-基于 Pi 的只读代码审查引擎。当前在 v0.1 审查闭环上实现 **v0.2 Python CodeGraph 与可复现评测**：同一个 Agent 按需使用文本和图工具，最终 finding 仍引用不可变源码。构图与 SDK 接线已经离线验证；**尚无证据证明 Graph 提高了审查质量**，未打版本标签。
+基于 Pi 的只读代码审查引擎。当前在 v0.1 审查闭环上实现 **v0.2 Python CodeGraph 与可复现评测**：同一个 Agent 按需使用文本和图工具，最终 finding 仍引用不可变源码。BigModel GLM-5.3-Flash 已通过真实 CLI 审查、图工具、报告重开、证据核验和同快照重跑 smoke；实测范围见 [验证记录](docs/VALIDATION.md)。**尚无证据证明 Graph 提高了审查质量**，未打版本标签。
 
 ## 开始使用
 

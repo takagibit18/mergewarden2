@@ -4,8 +4,8 @@
 
 | 版本 | 模块 | 验收门槛与当前状态 |
 |---|---|---|
-| v0.1.0 | 不可变提交快照、源码/差异/搜索、Pi 多供应商、final_only、预算/取消、报告、CLI | 离线实现已完成；真实固定变更的模型审查尚未执行；未打标签 |
-| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness | 工程路径与四组远端 CI 已通过；全量构建和同快照缓存；真实质量及人工复核仍待验收，不以脚本结果替代 |
+| v0.1.0 | 不可变提交快照、源码/差异/搜索、Pi 多供应商、final_only、预算/取消、报告、CLI | 离线实现与 v0.2 案例上的真实 GLM CLI smoke 已通过；原独立缺陷/修复 fixture 待验收；未打标签 |
+| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness | 工程路径与四组远端 CI 已通过；真实 CLI smoke/重跑成功，4-case A/B 有 1 次 Graph 组超时且未显示增益；完整真实集、独立人工复核与质量提升待验收 |
 | v0.3.0 | VS Code 本机、引擎工作进程与版本化 IPC、配置/进度/取消/历史/证据/stale、VSIX | 后续实施；底层 staged/worktree 快照已提前作为引擎契约验证 |
 | v0.4.0 | WSL、诊断、资源限制、固定集和真实变更评测、受邀试用文档 | 后续实施；Windows+WSL 和真实模型验证均通过才可验收 |
 

@@ -38,9 +38,35 @@ Gold 在模型调用前冻结：12 defect（4/4/2/2 分类）、8 hard-negative 
 
 实现提交 `7a38870` 已推送至 `feat/python-codegraph-evaluation`，并创建 [草稿 PR #3](https://github.com/takagibit18/mergewarden2/pull/3)，基于包含完整 v0.1 引擎的 `feat/immutable-snapshots`。该提交的 [push CI](https://github.com/takagibit18/mergewarden2/actions/runs/35500506139) 四组矩阵全部通过：Windows/Linux × Node 22.19.0/24.12.0，每组执行锁定依赖安装和完整 `npm run verify`。未改写 main，未 force push。
 
-### 未完成的验收
+### 真实模型 CLI 主链路与最小 A/B
 
-用户已选择 bigmodel/glm-5.3-flash 与 MERGEWARDEN_API_KEY，但当前运行环境尚未读取到该变量；**真实模型 A/B 未执行，Graph 增量质量未证明**。真实运行入口及匹配步骤见 [eval](../eval/README.md)。没有打 v0.2.0 标签；真实质量验收与独立人工标注复核仍待完成。
+2026-09-20 使用用户配置的 MERGEWARDEN_API_KEY 调用 bigmodel/glm-5.3-flash；以下为真实请求和 SDK 用量，不是 scripted provider。运行时实现提交为 `f9921cc`（运行时源码与 `7a38870` 相同），实现摘要 `baeb01671d9f8f7c68085b4da5daa6eb67dc9a4eebbafc792520445788054dc8`。运行前后摘要一致，4 对配置审计全部通过；没有修改模型、提示词、预算或 frozen labels 迁就结果。之后只同步 CLI status 的验收元数据和文档。
+
+正式 CLI 在冻结 single-zero 案例完成 review → immutable Snapshot → Pi/GLM → read_diff/read_source/search_text/graph_lookup/graph_neighbors → submit_review → JSON/Markdown 交付，退出码 0。run `11c6f5b3-52c6-461e-a910-e45ddfe7ecd9` 找到零除回归，9 次工具调用（3 次 Graph），92.709 秒；cold build 81.756 ms，warm request 77.559/77.597 ms。CLI history/show/evidence 重新读取成功，证据 SHA 与报告 hash 均通过，doctor 无遗留锁。独立 CLI smoke 使用 180 秒、40 工具预算，不混入以下 A/B 指标。
+
+同 snapshot rerun `f34d2d89-5177-4ffc-b86f-a294cea04c80` 也以退出码 0 完成，新旧报告均可读取；耗时 63.355 秒，7 次工具调用（1 次 Graph）。缓存复用 build=0，warm request 74.018 ms。snapshot 均为 `599c1164aefdf426bae6b43d409248cf36ac9124e16adb00915537866bf9b9fc`。
+
+A/B 使用原先冻结的 4 个 smoke 案例（single-zero、cross-key、alias-normalize、clean-guard），3 defect + 1 clean，每组 120 秒、40 工具预算，单次运行：
+
+| 实测指标 | Text-only | Text+Graph |
+|---|---:|---:|
+| 完整交付 | 4/4 | 3/4 |
+| TP / FP / FN | 3 / 0 / 0 | 2 / 0 / 1 |
+| Finding precision / recall / F1 | 1 / 1 / 1 | 1 / 0.667 / 0.8 |
+| clean PR false-positive rate | 0 | 0 |
+| PR-level recall / cross-file recall | 1 / 1 | 0.667 / 0.5 |
+| input / output / total tokens | 84,996 / 16,163 / 101,159 | 123,712 / 15,719 / 139,431 |
+| 工具调用 / Graph 调用 | 40 / 0 | 47 / 10 |
+| 总 review latency | 413.665 秒 | 419.512 秒 |
+| 总 graph build latency | 0 | 377.966 ms |
+
+Graph 组的 alias-normalize 在第 13 次工具调用 submit_review 时因把未修改文件列入 reviewedPaths 而收到 Unknown reviewed path，随后触及 120 秒上限。索引与 Graph 查询均成功，3/3 文件、1 resolved call；报告明确 partial（Review time budget exhausted），未伪装 clean，仍计入 FN 与完整交付率分母。两个 cross-key run 也曾触发相同提交校验，但均在预算内修正成功。保留这些失败和恢复记录，未重试后覆盖原结果。
+
+Graph 组四个索引按案例分别为 indexed 1/2/3/2，resolved calls 0/1/1/1；parse-incomplete/candidate/unresolved 均 0。cold build 为 89.982–98.291 ms，warm request 为 71.224–85.717 ms，仍包含工作线程启动和缓存校验。Text-only 未构图；其零诊断数表示未索引，不表示没有依赖。
+
+五个已提交 finding 由本次 Codex 逐条比较 claim/trigger/impact 与冻结源码后作语义匹配，**不是独立人工复核**；两个 finding 的预测 severity 为 medium、gold 为 high，现有指标衡量缺陷身份而非严重性一致率。全部报告重开与源码证据复核通过。此次小样本中 Graph 完成率和 recall 更低、token 更多，**未观察到增益，也不足以推断普遍优劣**。
+
+仓库外真实产物：`../output/mergewarden-v02/live-smoke-20260920/{raw,mapping,metrics,e2e-audit}.json`，以及 `cli-live-20260920/e2e-audit.json` 与各 run 原生 JSONL/报告。原 20-case 离线数据完整保留，不能与这组真实用量混合。完整 20 例真实调用、重复实验、独立人工标注复核及公开项目评测尚未完成；未打 v0.2.0 标签。
 
 ## v0.1 离线实现验证
 
@@ -86,4 +112,4 @@ M0 历史基线 51 项及首次四组矩阵通过记录：[M0 CI](https://github
 
 M0 发现的首条 assistant 前延迟持久化已通过公开 API 的独占空文件初始化解决，原行为测试保留。当前强制同步及校验，不宣称 exactly-once 或数据库事务。
 
-v0.2 已实现 Python resolver/SQLite 与 20 个受控案例，详见上方实测。VS Code/VSIX、Windows/WSL 产品验收、独立人工黄金集及 3 对公开项目评测尚未完成。没有真实供应商被标为“已实测”，也未发布 Marketplace、公共许可证或版本标签。
+v0.2 已实现 Python resolver/SQLite 与 20 个受控案例，BigModel GLM-5.3-Flash 的真实 CLI smoke 和 4-case A/B 详见上方实测；其他供应商未实测。VS Code/VSIX、Windows/WSL 产品验收、独立人工黄金集及 3 对公开项目评测尚未完成。未发布 Marketplace、公共许可证或版本标签。

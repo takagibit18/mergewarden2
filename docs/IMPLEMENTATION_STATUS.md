@@ -1,19 +1,19 @@
 # 当前实现状态 · 2026-09-20
 
-v0.2 的 Python 图与评测工程路径已接在 v0.1 上，本地 130 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实模型 A/B 与独立人工语义复核仍待完成，记录见 VALIDATION；构图成功不表示质量增益。未打版本标签。
+v0.2 的 Python 图与评测工程路径已接在 v0.1 上，本地 130 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实 GLM CLI 审查/重跑通过；4-case 真实 A/B 中 Text-only 完整交付 4/4，Text+Graph 3/4（1 次超时），未证明质量增益。独立人工语义复核仍待完成，记录见 VALIDATION。未打版本标签。
 
 | 模块 | 状态 | 未完成边界 |
 |---|---|---|
 | 快照 | 提交、暂存区、已保存工作区；仓库外内容存储；版本身份；冻结竞争检查 | VS Code 的用户选择及产品验收 |
 | 文本取证 | 源码行号/hash、差异分页、字面搜索；明确截断/不支持文件 | 非文本内容的语义审查 |
 | 业务引擎 | final_only；候选结构/证据/覆盖核验；取消、工具和时间预算 | 缺陷语义正确性须人工判断 |
-| Pi | 单会话内置供应商及国内 BigModel GLM-5.3-Flash；明确 API Key；精确工具白名单；不加载仓库指令/扩展 | 真实供应商尚未调用/实测；OAuth 不支持 |
+| Pi | 单会话内置供应商及国内 BigModel GLM-5.3-Flash；该模型真实 CLI smoke 已通过；明确 API Key；精确工具白名单；不加载仓库指令/扩展 | 其他供应商未实测；OAuth 不支持 |
 | 原生日志 | 独占空文件经公开 SessionManager.open 初始化；首条回复前持久化；fsync 和写入故障检查 | 不宣称数据库级事务或 exactly-once |
 | 报告和恢复 | JSON/Markdown 原子替换；交付清单最后写入；历史校验；原快照新 run | 中断模型会话不续接；运行中硬退出可能留锁 |
 | CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
 | Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、SQLite v2、按需两工具、可终止工作线程 | 只索引 head；动态 receiver、全类型推断及增量更新不支持 |
 | VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
-| 评测 | 20 例冻结 Git SHA/源码/hash；12 defect + 8 hard negative；真实 SDK 离线 A/B；逐例 raw 与语义 mapping；重复运行 | 受控案例未经独立人工标注；真实 A/B 和公开项目效果不能由脚本 provider 替代 |
+| 评测 | 20 例冻结 Git SHA/源码/hash；12 defect + 8 hard negative；20-case 离线 A/B 与 4-case 真实 GLM A/B；逐例 raw 与语义 mapping；重复运行 | 真实 A/B 有 1 次超时，Graph 未显示增益；20 例尚未全量真实调用，受控案例未经独立人工标注；公开项目效果待验收 |
 
 资源上限：单文件 1 MiB，捕获最多 10,000 个路径、100 MiB 内容，最多 200 个变更路径；源码最多每次 200 行/32 KiB，差异按页读取，搜索最多 100 个结果。超限会拒绝、明确不可审查或返回截断；不能据此认定无缺陷。工作区符号链接路径拒绝读取；提交/index 的符号链接、子模块、二进制、超大文件不能计入文本审查覆盖。
 
