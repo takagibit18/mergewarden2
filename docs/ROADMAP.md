@@ -25,7 +25,7 @@ MVP 固定一个 Pi 会话、final_only 输出。中断后保留实际状态和�
 
 当前 20 例需要独立人工复核并增加真实项目案例；`fixtures/live-v01` 仍只是初次模型 smoke。Finding ↔ golden mapping 必须有语义理由，不能以位置重合自动判对。供应商区分“接入支持”和“实测”；脚本 provider 不属于模型效果验证。尚未取得真实调用条件或完成 WSL 验证时，不标记 v0.4.0 完成。
 
-完整 20-case 单次 GLM 对照已保持原模型、预算、prompt 与 snapshot 跑完；case 答案未改。下一步由用户逐例审核 bug/clean、输入域和行为、severity、Graph 偏向，再生成已审核或有争议的 provenance receipt。若修订答案须升级 corpus 并保留旧结果。关键案例的后续重复沿用相同预算，保留全部失败；先解释实际 tool trace 与缺失 usage，再决定后续改动，不把调 prompt/model/Graph 后的混合收益归给 Graph。
+原版 r1 的完整 GLM 对照已保持模型、预算、prompt 与 snapshot 跑完。用户随后授权 Agent 逐例复核和修订：当前 r2 修复输入域反例、明确 API 边界、重评 severity、增强负例并替换重复缺陷家族；原版按字节归档，历史结果不变。r2 在自己的模型调用前冻结，已见过 r1 结果的作者不满足独立 holdout。下一次真实 A/B 须两组均使用 r2 的同批 snapshot，继续固定模型/预算/prompt，保留失败；不能把跨语料的成绩变化归给 Graph。独立人工复核和真实项目案例仍待补充。
 
 ## MVP 之后
 

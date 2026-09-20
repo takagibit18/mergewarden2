@@ -2,7 +2,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {humanReviewTemplate,validateHumanReview} from '../src/eval/human-review.ts';
-import {validateCorpus} from './validate.mjs';
+import {loadCorpus} from './corpus.mjs';
 import {isolatedState} from '../src/infrastructure/files.ts';
 
 export function reviewHtml(corpus,review){
@@ -27,7 +27,7 @@ document.getElementById('export').onclick=()=>{review.submittedAt=new Date().toI
 async function main(){
  const args=process.argv.slice(2),get=name=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};
  if(!get('--output'))throw Error('Use --output OUTSIDE_CHECKOUT, optionally --validate HUMAN_REVIEW_JSON');
- const bytes=await readFile(new URL('./cases.json',import.meta.url),'utf8'),lock=JSON.parse(await readFile(new URL('./corpus.lock.json',import.meta.url),'utf8'));const corpus=validateCorpus(JSON.parse(bytes),lock,bytes);
+ const {corpus,lock}=await loadCorpus(get('--corpus'));
  const output=await isolatedState(resolve(get('--output')),fileURLToPath(new URL('../',import.meta.url)));await mkdir(output,{recursive:true});
  if(get('--validate')){const review=JSON.parse(await readFile(resolve(get('--validate')),'utf8'));const receipt=validateHumanReview(review,corpus.cases,lock.sha256);await writeFile(join(output,'reviewed-provenance.json'),JSON.stringify(receipt,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify({reviewed:receipt.reviewed,total:receipt.total,complete:receipt.complete,allAccepted:receipt.allAccepted,goldModified:false}));}
  else{const review=humanReviewTemplate(corpus.cases,lock.sha256);await writeFile(join(output,'review-template.json'),JSON.stringify(review,null,2)+'\n',{flag:'wx'});await writeFile(join(output,'review.html'),reviewHtml(corpus,review),{flag:'wx'});console.log('Prepared human review packet; all 20 annotations remain pending.');}

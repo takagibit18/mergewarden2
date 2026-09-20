@@ -8,17 +8,16 @@ import { isolatedState, sha256, writeJson } from '../src/infrastructure/files.ts
 import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT } from '../src/engine/prompt.ts';
 import { score } from '../src/eval/metrics.ts';
 import { materializeCase } from './materialize.mjs';
-import { validateCorpus } from './validate.mjs';
+import { loadCorpus } from './corpus.mjs';
 import { implementationFingerprint } from './fingerprint.mjs';
 const args=process.argv.slice(2);const get=name=>{const at=args.indexOf(name);return at<0?undefined:args[at+1];};
-const bytes=await readFile(new URL('./cases.json',import.meta.url),'utf8');
-const corpus=validateCorpus(JSON.parse(bytes),JSON.parse(await readFile(new URL('./corpus.lock.json',import.meta.url),'utf8')),bytes);
+const {bytes,corpus}=await loadCorpus(get('--corpus'));
 const config=JSON.parse(await readFile(new URL('./experiment.json',import.meta.url),'utf8'));
 if(!get('--output'))throw Error('Use --output OUTSIDE_CHECKOUT plus --offline or --live, optionally --cases ID,ID and --repeats N. Score using --score and --mapping FILE.');
 const output=resolve(get('--output'));
 if(args.includes('--score')){
  const raw=JSON.parse(await readFile(join(output,'raw.json'),'utf8'));const mappings=JSON.parse(await readFile(resolve(get('--mapping')??join(output,'mapping.json')),'utf8'));
- if(raw.corpusSha256!==sha256(bytes))throw Error('Result corpus mismatch');
+ if(raw.corpusSha256!==sha256(bytes))throw Error('Result corpus mismatch; select the original frozen directory with --corpus');
  if(raw.sourceUnchanged!==true||!raw.pairAudits?.every(p=>p.verified))throw Error('A/B implementation/configuration freeze was not verified');
  await writeJson(join(output,'metrics.json'),score(corpus.cases,raw.runs,mappings));console.log('Saved adjudicated metrics.');
 }else{

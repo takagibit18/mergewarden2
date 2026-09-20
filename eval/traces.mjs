@@ -8,6 +8,7 @@ import {checkEvidence} from '../src/application/evidence-check.ts';
 import {sha256,writeJson} from '../src/infrastructure/files.ts';
 import {score} from '../src/eval/metrics.ts';
 import {validateHumanReview} from '../src/eval/human-review.ts';
+import {loadCorpus} from './corpus.mjs';
 const ratio=(n,d)=>d?n/d:null;
 
 export function summarizeTraces(runs,mappings){
@@ -51,6 +52,7 @@ export function summarizeTraces(runs,mappings){
 async function main(){
  const args=process.argv.slice(2),get=name=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};if(!get('--output'))throw Error('Use --output EVALUATION_DIRECTORY [--mapping FILE] [--partial]');
  const output=resolve(get('--output')),rawBytes=await readFile(join(output,'raw.json'),'utf8'),raw=JSON.parse(rawBytes),state=resolve(get('--state')??join(output,'state'));
+ const selectedCorpus=(get('--human-review')||get('--mapping'))?await loadCorpus(get('--corpus'),raw.corpusSha256):undefined;
  const partial=args.includes('--partial');if(!partial&&(raw.sourceUnchanged!==true||!raw.pairAudits?.every(a=>a.verified)))throw Error('Experiment source/configuration freeze is not verified; use --partial for a clearly provisional analysis');
  const runs=[];
  for(const run of raw.runs){
@@ -63,8 +65,8 @@ async function main(){
   runs.push({...identity,...analysis,analysisStatus:analysis.traceIssues.length?'trace_incomplete':'ok',traceFile,reportIntegrityVerified:true,evidenceIntegrityVerified:true});
  }
  let mappings;let humanReview={status:'pending_independent_human_review',reviewed:0,total:20,allAccepted:false};
- if(get('--human-review')){const corpusBytes=await readFile(new URL('./cases.json',import.meta.url),'utf8');if(sha256(corpusBytes)!==raw.corpusSha256)throw Error('Human review/corpus mismatch');const declaration=JSON.parse(await readFile(resolve(get('--human-review')),'utf8'));const receipt=validateHumanReview(declaration,JSON.parse(corpusBytes).cases,raw.corpusSha256);humanReview={status:receipt.complete?'human_review_complete':'human_review_partial',...receipt};}
- if(get('--mapping')){mappings=JSON.parse(await readFile(resolve(get('--mapping')),'utf8'));const corpusBytes=await readFile(new URL('./cases.json',import.meta.url),'utf8');if(sha256(corpusBytes)!==raw.corpusSha256)throw Error('Mapping/corpus mismatch');score(JSON.parse(corpusBytes).cases,raw.runs,mappings);}
+ if(get('--human-review')){const declaration=JSON.parse(await readFile(resolve(get('--human-review')),'utf8'));const receipt=validateHumanReview(declaration,selectedCorpus.corpus.cases,raw.corpusSha256);humanReview={status:receipt.complete?'human_review_complete':'human_review_partial',...receipt};}
+ if(get('--mapping')){mappings=JSON.parse(await readFile(resolve(get('--mapping')),'utf8'));score(selectedCorpus.corpus.cases,raw.runs,mappings);}
  const analyzerSha256=sha256((await readFile(new URL('../src/eval/traces.ts',import.meta.url),'utf8'))+(await readFile(new URL('./traces.mjs',import.meta.url),'utf8')));
  const result={schemaVersion:1,attributionVersion:'trace-attribution-1',provisional:partial||raw.sourceUnchanged!==true,rawSha256:sha256(rawBytes),corpusSha256:raw.corpusSha256,implementationFingerprint:raw.implementationFingerprint,analyzerSha256,
   definitions:{toolOrdinal:'One-based issued tool call order on the last native branch, including rejected and unanswered calls.',lookupSuccess:'Non-error, snapshot-matched ok/parse_incomplete response; hit additionally requires returned symbol IDs. Empty success is not a hit.',lookupToNeighbors:'Fraction of hit lookups linked to a later-issued neighbors call using a returned symbol ID; most recent matching lookup receives the conversion.',neighborsToReadSource:'Fraction of successful nonempty neighbors calls followed by a separately issued HEAD source read covering a returned provenance range; this is navigation, not necessarily new discovery.',novelty:'Strict path-level text novelty in both revisions: any earlier source/diff/search exposure before the source call prevents strict graph-assisted credit.',graphAssisted:'Resolved incoming CALLS/REFERENCES -> caller path not previously exposed by text -> separately issued source read covering the call site -> accepted final finding evidence includes that site.',textOnly:'Accepted source evidence predates Graph, or no observed relevant Graph result led to those evidence locations.',ambiguous:'Missing/corrupt trace or missing accepted evidence chain; or relevant Graph exposure with competing text discovery, uncertain edges, same-batch pre-issued reads, or unsupported navigation.',tokens:'Exact per-tool GLM tokens unavailable. graphResponseTokenEstimate is Unicode code points / 4 rounded up per run; response text counted once; excludes context replay.'},

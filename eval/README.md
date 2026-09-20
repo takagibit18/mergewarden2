@@ -1,8 +1,30 @@
 # Python retrieval evaluation
 
-这是同一个 ReviewEngine 的内部工具消融，不是产品模式。`cases.json` 固定 20 个受控案例：4 单文件、4 跨文件、2 多跳、2 import/scope 缺陷，8 个 hard-negative clean。每例保存仓库逻辑身份、真实 Git base/head SHA、源码、定位、严重性、行为和人工可读理由。理由在模型调用前编写，但尚未独立人工复核；不要把它描述为公开项目真实缺陷黄金集。
+这是同一个 ReviewEngine 的内部工具消融，不是产品模式。`cases.json` 当前为 **controlled-python-v02-20-r2**：4 单文件、4 跨文件、2 多跳、2 import/scope 缺陷，8 个 clean 对照。每例保存仓库逻辑身份、真实 Git base/head SHA、源码、定位、严重性、行为和人工可读理由。r2 经用户授权的 Agent 静态复核修订，作者已看过 r1 模型结果；在 r2 模型调用前冻结，不是独立人工标注或未见结果的 holdout。
 
-`corpus.lock.json` 固定字节摘要。`materialize.mjs` 只用 Git 对象命令重建相同提交，不执行 Python，不 checkout hooks。修改预期答案必须独立审议和升级 corpus；不能为当前预测改答案。
+`corpus.lock.json` 固定字节摘要。`materialize.mjs` 只用 Git 对象命令重建相同提交，不执行 Python，不 checkout hooks。修订必须有明确源码依据、授权和新 corpus 身份；不能为当前预测改答案。
+
+## Corpus 版本与修订边界
+
+旧版 [controlled-python-v02-20](corpora/controlled-python-v02-20/cases.json) 和 lock 按原字节归档，SHA-256 为 `ef748a3c5916190857e5cb8e4753b23274f7206833ada681763dd328b2b44939`。历史 GLM 20+20 结果只属于该版本。当前 r2 hash 见 [lock](corpus.lock.json)，逐例 predecessor/SHA、修改理由、severity 理由及 Agent provenance 见 [修订清单](corpus-revision.json)。这份清单是语料元数据，不是人工审核 receipt。
+
+| r2 修订 | 源码层面的约定 |
+|---|---|
+| clean-guard | 保留正小数输入；两个版本的调用者都先把正数 count 归一化到至少 1，再移除 helper 的重复保护。ratio(1,0.5) 两边均为 1.0 |
+| clean-key-migration / clean-alias / clean-conversion | 公共入口、输入域和私有 helper/alias 在两个版本源码中明确，不能只把范围写在模型看不到的 gold 中 |
+| clean-shadow / clean-empty / clean-default | 分别检查局部遮蔽、调用者非空保护、始终传参使私有 mutable default 不被使用；替换原来简单的等价表达式改写 |
+| multihop-units → multihop-retry | 换成两跳重试次数契约，避免重复一份相同单位转换 defect；旧 case 仍在 r1 |
+| 12 个 defect 的 severity | 10 项 medium；错误删除与显式输出集合反转 2 项暂定 high；逐例理由不推断不存在的生产事故或安全事件 |
+
+这些仍是每例 1–3 文件的受控样本。clean-alias 较容易，不能宣称 8 个 clean 都是高难 hard negative；cross-units/clean-conversion 有意成对，样本并非完全独立。r2 的源码行为目前基于静态推导，grammar/Snapshot/离线 Pi 验证不等于执行 Python 或真实模型质量验证。
+
+执行、评分、trace 匹配和人工审核工具均可用 `--corpus DIRECTORY` 显式选择包含 cases/lock 的目录，默认当前 r2。旧结果配上 r2 标签会拒绝；不得把历史分数改称 r2 分数。例如重新核验旧评分：
+
+```sh
+npm run eval -- --score --corpus eval/corpora/controlled-python-v02-20 --output /outside/checkout/old-run --mapping /outside/checkout/old-run/mapping.json
+```
+
+历史 trace 或审核页同样附加 `--corpus eval/corpora/controlled-python-v02-20`。r1 的 dispute 不能因 r2 修订被抹除；若比较两套语料，需明确样本与源码不同，不能把分数变化归因于 Graph。
 
 ## 执行
 
@@ -44,7 +66,7 @@ npm run eval:human-review -- --validate /path/to/golden-human-review.json --outp
 
 第二条命令验证 corpus hash、20 个 case 身份和 base/head SHA，生成 `reviewed-provenance.json`。其中每例有效 `annotationProvenance.status` 为 pending_human_review、human_reviewed_accepted 或 human_reviewed_disputed；保留签署人、日期和原始理由。软件只能验证声明与数据结构，不能自行证明审核人的身份。部分复核不会升级未审案例；不同意任一标签/行为/severity 或仍有偏向疑问时，必须标记 needs_revision/reject，不能静默接受。
 
-此 receipt 是绑定原 corpus 的来源记录，不修改冻结 case/答案/lock，也不会让正在运行的实验失效。当前原始 `annotationProvenance` 仍描述 Agent 编写来源；只有实际人工作答后的 receipt 才能提供审核后的状态。后续若人工要求改答案，另建新 corpus 版本，旧实验继续引用原 hash。schema 见 `schemas/human-review.schema.json`。
+此 receipt 是绑定所选 corpus 的人工来源记录，不修改冻结 case/答案/lock。r2 的 `annotationProvenance` 如实描述 Agent 编写和复核来源；`corpus-revision.json` 保存 Agent 状态，不可冒充这里的人工声明。只有实际人工作答才能生成 human_reviewed 状态。后续再次修订须另建版本，旧实验继续引用原 hash。schema 见 `schemas/human-review.schema.json`。
 
 ## 工具轨迹与 Finding 归因
 
