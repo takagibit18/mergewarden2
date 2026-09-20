@@ -26,6 +26,7 @@ export function summarizeTraces(runs,mappings){
    lookupCalls:sum('lookupCalls'),lookupSuccessfulCalls:sum('lookupSuccessfulCalls'),lookupHits:sum('lookupHits'),lookupSuccessRate:ratio(sum('lookupSuccessfulCalls'),sum('lookupCalls')),lookupHitRate:ratio(sum('lookupHits'),sum('lookupCalls')),
    lookupToNeighbors:{converted:convertedLookup,eligible:eligibleLookup,rate:ratio(convertedLookup,eligibleLookup)},neighborsToReadSource:{converted:convertedNeighbors,eligible:eligibleNeighbors,rate:ratio(convertedNeighbors,eligibleNeighbors)},
    newCallerReadConversions:sum('newCallerReadConversions'),searchTextCalls:sum('searchTextCalls'),readSourceCalls:sum('readSourceCalls'),rejectedSubmissions:sum('rejectedSubmissions'),
+   runsWithIncompleteUsage:rows.filter(r=>r.usage.incompleteUsage).length,interruptedResponses:rows.reduce((n,r)=>n+r.usage.interruptedResponses,0),
    graphResponseUtf8Bytes:sum('graphResponseUtf8Bytes'),graphResponseCharacters:sum('graphResponseCharacters'),graphResponseTokens:null,graphResponseTokenEstimate:sum('graphResponseTokenEstimate'),discoveryPaths}];
  }));
  const comparisons=[];const graphAssistedWithoutTextMatch=[];
@@ -44,7 +45,7 @@ export function summarizeTraces(runs,mappings){
   }
  }
  return {byArm,comparisons,graphAssistedWithoutTextMatch:mappings?graphAssistedWithoutTextMatch:null,
-  interpretation:'Trace attribution is an observable discovery path, not proof of counterfactual causality. Cross-arm differences require semantic golden mappings and include partial attempts. Returned Graph token counts are unavailable; the separate character/4 estimate is not GLM tokenization or billed context replay.'};
+  interpretation:'Trace attribution is an observable discovery path, not proof of counterfactual causality. Cross-arm differences require semantic golden mappings and include partial attempts. Returned Graph token counts are unavailable; the separate character/4 estimate is not GLM tokenization or billed context replay. SDK usage on interrupted/missing-usage responses may omit provider consumption; reported totals are not a complete billing record.'};
 }
 
 async function main(){

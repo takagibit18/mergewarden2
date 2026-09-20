@@ -66,6 +66,8 @@ npm run eval:traces -- --output /outside/checkout/live-run --mapping /outside/ch
 
 Graph 返回量记录精确 UTF-8 bytes/Unicode 字符数；SDK 未提供逐 tool 的 GLM token 数，因此 `graphResponseTokens=null`。另列字符数/4 向上取整的粗估，明确不是 GLM tokenizer、账单 token 或上下文重复发送成本。真实 input/output/total tokens 仍取模型 SDK usage，不用粗估替代。
 
+逐 run 的 `usage` 仅统计活动分支中的供应商/SDK 用量元数据，input 包含 cacheRead/cacheWrite；保留缓存用量、interrupted/missing response 数以及 `incompleteUsage`。超时流可能以 aborted 和全零 usage 结束，这不是零消耗的证据。汇总 `runsWithIncompleteUsage` 显式暴露缺口；raw 中实测 tokens 是 SDK 已返回的部分，不能当完整供应商账单。分析不读取或输出模型思考内容。
+
 传入已完成语义复核的 mapping 后，可列出 **graph_assisted 且同 case/repeat 的 Text-only 没有已接受同一 golden 的 finding**，同时保留 Text-only 是否完成。缺少 mapping 时该结果为 null，不能靠标题相似或行号重合猜测。此指标证明的是本次可观察发现路径，单次配对仍不能证明反事实因果或普遍收益。
 
 `--human-review` 仅接受实际审核人填写的原始导出，校验后将逐例审核 provenance 附入分析结果。未提供时明确记录 pending_independent_human_review；Agent 对预测与原 gold 的语义匹配不能代替人工审核，质量分数须按尚未复核的标签解释。

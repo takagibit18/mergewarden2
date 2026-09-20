@@ -9,6 +9,7 @@
     "definitions": {"type": "object"}, "byArm": {"type": "object"},
     "runs": {"type": "array", "items": {"type": "object", "required": ["runKey", "caseId", "arm", "status", "analysisStatus"], "properties": {
       "analysisStatus": {"enum": ["ok", "unavailable", "trace_incomplete"]},
+      "usage": {"type": "object", "required": ["reportedInputTokens", "reportedOutputTokens", "reportedTotalTokens", "interruptedResponses", "missingUsageResponses", "incompleteUsage"], "properties": {"incompleteUsage": {"type": "boolean"}, "interruptedResponses": {"type": "integer", "minimum": 0}, "missingUsageResponses": {"type": "integer", "minimum": 0}}},
       "findings": {"type": "array", "items": {"$ref": "#/$defs/attribution"}},
       "metrics": {"type": "object", "properties": {"graphResponseTokens": {"type": "null"}, "graphResponseTokenEstimate": {"type": "integer", "minimum": 0}, "firstGraphToolOrdinal": {"type": ["integer", "null"], "minimum": 1}}}
     }}}

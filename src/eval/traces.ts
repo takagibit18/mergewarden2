@@ -13,11 +13,16 @@ export interface ToolCall {
   id: string; name: string; args: ObjectValue; ordinal: number; callEvent: number; callEntryId: string;
   resultEvent?: number; resultEntryId?: string; response?: ObjectValue; resultText: string; isError: boolean;
 }
-export interface DecodedTrace { sha256: string; calls: ToolCall[]; issues: string[]; ignoredBranchEntries: number }
+export interface TraceUsage {
+  assistantResponses: number; reportedInputTokens: number; reportedOutputTokens: number; reportedTotalTokens: number;
+  cacheReadTokens: number; cacheWriteTokens: number; interruptedResponses: number; missingUsageResponses: number; incompleteUsage: boolean;
+}
+export interface DecodedTrace { sha256: string; calls: ToolCall[]; issues: string[]; ignoredBranchEntries: number; usage: TraceUsage }
 
 /** Read only model-visible tool calls/results from the last native branch. Never read model self-attribution or thinking. */
 export function decodePiTrace(jsonl: string): DecodedTrace {
-  const trace: DecodedTrace = { sha256: createHash("sha256").update(jsonl).digest("hex"), calls: [], issues: [], ignoredBranchEntries: 0 };
+  const trace: DecodedTrace = { sha256: createHash("sha256").update(jsonl).digest("hex"), calls: [], issues: [], ignoredBranchEntries: 0,
+    usage: { assistantResponses: 0, reportedInputTokens: 0, reportedOutputTokens: 0, reportedTotalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, interruptedResponses: 0, missingUsageResponses: 0, incompleteUsage: false } };
   const entries: ObjectValue[] = [];
   for (const [index, line] of jsonl.trim().split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
@@ -43,6 +48,16 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
   for (const [event, e] of branch.entries()) {
     if (e.type !== "message" || !object(e.message)) continue;
     const message = e.message;
+    if (message.role === "assistant") {
+      const usage = message.usage; trace.usage.assistantResponses++;
+      if (["aborted", "error"].includes(String(message.stopReason))) trace.usage.interruptedResponses++;
+      if (!object(usage) || ![usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0)) trace.usage.missingUsageResponses++;
+      else {
+        trace.usage.reportedInputTokens += Number(usage.input) + Number(usage.cacheRead) + Number(usage.cacheWrite);
+        trace.usage.reportedOutputTokens += Number(usage.output); trace.usage.reportedTotalTokens += Number(usage.totalTokens);
+        trace.usage.cacheReadTokens += Number(usage.cacheRead); trace.usage.cacheWriteTokens += Number(usage.cacheWrite);
+      }
+    }
     if (message.role === "assistant") for (const block of records(message.content)) {
       if (block.type !== "toolCall") continue;
       if (typeof block.id !== "string" || typeof block.name !== "string" || !object(block.arguments) || calls.has(block.id)) { trace.issues.push("Invalid/duplicate tool call"); continue; }
@@ -58,6 +73,7 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
       catch { trace.issues.push(`Non-JSON tool response: ${call.id}`); }
     }
   }
+  trace.usage.incompleteUsage = trace.usage.interruptedResponses > 0 || trace.usage.missingUsageResponses > 0;
   return trace;
 }
 
@@ -134,7 +150,7 @@ export function analyzeTrace(input: { runKey: string; snapshotId: string; findin
   const graphChars = graphs.reduce((n, c) => n + [...c.resultText].length, 0);
   const count = (name: string) => calls.filter(c => c.name === name).length;
   const numerator = new Set(neighborLinks.map(l => l.neighborCallId)).size;
-  return { schemaVersion: 1, attributionVersion: "trace-attribution-1", runKey: input.runKey, snapshotId, traceSha256: trace.sha256, traceIssues: trace.issues, ignoredBranchEntries: trace.ignoredBranchEntries,
+  return { schemaVersion: 1, attributionVersion: "trace-attribution-1", runKey: input.runKey, snapshotId, traceSha256: trace.sha256, traceIssues: trace.issues, ignoredBranchEntries: trace.ignoredBranchEntries, usage: trace.usage,
     metrics: { toolCalls: calls.length, graphToolCalls: graphs.length, graphResults: graphs.filter(g => g.resultEvent !== undefined).length, firstGraphToolOrdinal: graphs[0]?.ordinal ?? null,
       lookupCalls: lookups.length, lookupSuccessfulCalls: lookups.filter(c => ok(c, snapshotId)).length, lookupHits: hits.length,
       lookupSuccessRate: lookups.length ? lookups.filter(c => ok(c, snapshotId)).length / lookups.length : null, lookupHitRate: lookups.length ? hits.length / lookups.length : null,

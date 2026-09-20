@@ -85,3 +85,15 @@ test('Graph touching already read callee evidence cannot claim a later unrelated
  const f=fixture(),callee={...evidence,path:'callee.py',endLine:2},combined={...finding,evidence:[callee,evidence]};
  f.read({...source,...callee});f.lookup();f.read();f.submit(combined);assert.equal(f.analyze([combined]).findings[0].discoveryPath,'text_only');
 });
+
+test('usage records cached input and flags interrupted or missing usage without inventing billed zeroes',()=>{
+ const f=fixture(),usage={input:10,output:5,cacheRead:7,cacheWrite:0,totalTokens:22};
+ f.append({role:'assistant',content:[],stopReason:'stop',usage});
+ const parent=f.entries.at(-1).id;f.append({role:'assistant',content:[],stopReason:'stop',usage:{...usage,input:999}});
+ f.entries.push({type:'custom',id:'usage-branch',parentId:parent});
+ let a=f.analyze([]);assert.equal(a.usage.reportedInputTokens,17);assert.equal(a.usage.reportedOutputTokens,5);assert.equal(a.usage.reportedTotalTokens,22);assert.equal(a.usage.cacheReadTokens,7);assert.equal(a.usage.incompleteUsage,false);
+ f.append({role:'assistant',content:[],stopReason:'aborted',usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0}});
+ f.entries.at(-1).parentId='usage-branch';
+ a=f.analyze([]);assert.equal(a.usage.reportedTotalTokens,22);assert.equal(a.usage.interruptedResponses,1);assert.equal(a.usage.incompleteUsage,true);
+ const missing=fixture();missing.append({role:'assistant',content:[],stopReason:'stop'});assert.equal(missing.analyze([]).usage.missingUsageResponses,1);
+});
