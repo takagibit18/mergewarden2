@@ -24,7 +24,8 @@
     "eval:human-review": "node --experimental-strip-types eval/human-review.mjs"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "@types/node": "24.12.4"
+    "@types/node": "24.12.4",
+    "snowball-stemmers": "0.6.0",
+    "typescript": "5.9.3"
   }
 }

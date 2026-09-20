@@ -1,0 +1,21 @@
+import {readFile} from 'node:fs/promises';
+import {resolve,join} from 'node:path';
+import {writeJson} from '../../src/infrastructure/files.ts';
+import {score} from '../../src/eval/metrics.ts';
+import {loadCorpus} from '../corpus.mjs';
+const output=resolve(process.argv[2]??''),raw=JSON.parse(await readFile(join(output,'raw.json'))),{corpus}=await loadCorpus(undefined,raw.corpusSha256);
+const mapping=JSON.parse(await readFile(join(output,'mapping.json')));
+const byArm=Object.fromEntries(['T0','G0','G1'].map(arm=>{
+ const runs=raw.runs.filter(r=>r.arm===arm),traces=runs.map(r=>r.trace),metrics=traces.map(t=>t?.metrics);
+ const numeric=metrics.find(Boolean)??{};
+ const sums=Object.fromEntries(Object.keys(numeric).filter(k=>typeof numeric[k]==='number'||numeric[k]===null).map(k=>[k,metrics.every(m=>m&&typeof m[k]==='number')?metrics.reduce((n,m)=>n+m[k],0):null]));
+ const findings=traces.flatMap(t=>t?.findings??[]);
+ const maps=mapping.filter(m=>runs.some(r=>r.runKey===m.runKey));
+ const scored=maps.every(m=>m.status==='complete')?score(corpus.cases,runs.map(r=>({...r,arm:'text-only'})),maps):null;
+ return [arm,{attempted:runs.length,complete:runs.filter(r=>r.delivered&&r.status==='completed').length,metrics:sums,firstGraphToolOrdinals:metrics.map(m=>m?.firstGraphToolOrdinal??null),novelSourceConversionRate:sums.novelEntities?sums.novelEntityToSource/sums.novelEntities:null,searchHitRate:sums.searchCalls?sums.searchHits/sums.searchCalls:null,attribution:Object.fromEntries(['text_only','graph_assisted','ambiguous'].map(p=>[p,findings.filter(f=>f.discoveryPath===p).length])),elapsedMs:runs.reduce((n,r)=>n+r.elapsedMs,0),quality:scored?.byArm['text-only'].quality??null,caseMappings:scored?.perCase??null}];
+}));
+const verified=raw.sourceUnchanged&&raw.armAudits.length===raw.selected.length&&raw.armAudits.every(a=>a.verified)&&raw.runs.length===raw.selected.length*3&&raw.runs.every(r=>r.trace&&!r.trace.traceIssues.length);
+const g1=byArm.G1.metrics,g0=byArm.G0.metrics;
+const stageDAllowed=raw.stage==='C'&&verified&&(g1.graphAssistedFindings>0||g1.novelEntityToSource>g0.novelEntityToSource&&g1.novelEntityToSource>=1);
+const summary={kind:raw.kind,stage:raw.stage,byArm,freezeVerified:verified,stageDAllowed,decision:stageDAllowed?'Predeclared mechanism gate met; eligible for full corpus.':'Do not run full corpus. Audit fidelity and stop if no implementation defect.',interpretation:'Usage totals are null when any attempt has unavailable/interrupted SDK usage. First graph ordinals are a distribution, not an additive measure. Attribution is observed trace provenance, not counterfactual causality. Quality is pending until explicit semantic mappings are complete.'};
+await writeJson(join(output,'summary.json'),summary);console.log(JSON.stringify(summary,null,2));

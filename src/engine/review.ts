@@ -8,6 +8,7 @@ import type { ReviewReport } from "../domain/contracts.ts";
 import { isolatedState, sha256, writeJson } from "../infrastructure/files.ts";
 import { SnapshotStore } from "../snapshot/store.ts";
 import { LazyCodeGraph } from "../graph/lazy-graph.ts";
+import { LazyLocAgent } from "../experiments/locagent/lazy.ts";
 import type { Relation } from "../graph/contracts.ts";
 import { deliver, readRun, runPath } from "./reports.ts";
 import type { FinalSubmission, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
@@ -62,8 +63,9 @@ export class ReviewEngine {
       manifest = { schemaVersion: 1, runId, snapshotId: store.manifest.identity.id, repositoryPath: repository, model: options.model, configurationFingerprint: store.manifest.identity.configurationFingerprint, limits: { timeoutMs, maxToolCalls: maxTools }, status: "running", createdAt: new Date().toISOString(), ...(options.rerunId ? { parentRunId: options.rerunId } : {}) };
       await writeJson(join(runDir, "run.json"), manifest);
       const graph = new LazyCodeGraph(stateDir, store.manifest.identity.id);
+      const retrieval = options.evaluation?.tools === "text+locagent" ? new LazyLocAgent(stateDir, store.manifest.identity.id, options.evaluation.retrieval) : undefined;
       const graphEnabled = options.evaluation?.tools !== "text-only";
-      manifest.toolExposure = graphEnabled ? "text+graph" : "text-only";
+      manifest.toolExposure = retrieval ? "text+locagent" : graphEnabled ? "text+graph" : "text-only";
       let graphFailed = false;
       const sourceReads = new Set<string>();
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
@@ -125,7 +127,7 @@ export class ReviewEngine {
           return { accepted: true, findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
         }),
       ];
-      if (graphEnabled) {
+      if (graphEnabled && !retrieval) {
         const limit = { type: "integer", minimum: 1, maximum: 100 }; const cursor = { type: "string", maxLength: 256 };
         const graphResult = async (run: () => Promise<import("../graph/contracts.ts").GraphPage<unknown>>) => {
           try { const page = await run(); if (["error", "not_indexed"].includes(page.status)) graphFailed = true; return page; }
@@ -136,6 +138,10 @@ export class ReviewEngine {
           tool("graph_neighbors", "One hop of CALLS/REFERENCES/CONTAINS/IMPORTS in immutable HEAD. Incoming results may be incomplete; never infer absence.", object({ symbolId: string, relation: { type: "string", enum: ["CALLS", "REFERENCES", "CONTAINS", "IMPORTS"] }, direction: { type: "string", enum: ["incoming", "outgoing"] }, limit, cursor }, ["symbolId", "relation", "direction", "limit"]), async input => graphResult(() => graph.neighbors({ snapshotId: store.manifest.identity.id, symbolId: text(input.symbolId), relation: text(input.relation) as Relation, direction: text(input.direction) as "incoming" | "outgoing", limit: number(input.limit, 20), ...(input.cursor === undefined ? {} : { cursor: text(input.cursor) }) }, abort.signal))),
         );
       }
+      if (retrieval) tools.splice(3, 0, ...retrieval.definitions().map(t => tool(t.name, t.description, t.schema, async input => {
+        try { const page = await retrieval.query(t.name, input, abort.signal); if (["error", "not_indexed"].includes(String(page.status))) graphFailed = true; return page; }
+        catch (error) { graphFailed = true; throw error; }
+      })));
       runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
@@ -161,7 +167,7 @@ export class ReviewEngine {
       const summary = complete ? finalSummary : [modelError ?? (graphFailed ? "Incomplete review: graph query/build failed; empty results do not establish a clean change" : "Incomplete review: final submission or coverage is missing"), finalSummary].filter(Boolean).join(". ");
       await controller.dispatch({ type: "run.finished", outcome, summary });
       const report = controller.report(); manifest.usage = runtime.usage();
-      manifest.metrics = { toolCalls, graphToolCalls: graph.metrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graph.metrics };
+      manifest.metrics = { toolCalls, graphToolCalls: (retrieval ?? graph).metrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: (retrieval ?? graph).metrics };
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);
       return { kind: "report", runId, report, ...paths };
