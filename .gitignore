@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.mergewarden/
+*.log
+*.tsbuildinfo
+.DS_Store
+.vscode-test/
+*.vsix
+artifacts/local/
+integrations/tree-sitter/grammars/*.wasm

@@ -1,0 +1,25 @@
+{
+  "name": "mergewarden2",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Evidence-first review engine foundation with isolated Pi and Tree-sitter adapters",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "demo": "node --experimental-strip-types src/cli/main.ts demo",
+    "status": "node --experimental-strip-types src/cli/main.ts status",
+    "typecheck": "tsc --noEmit",
+    "check": "npm test && npm run typecheck",
+    "test:integrations": "npm --prefix integrations/pi test && npm --prefix integrations/tree-sitter test",
+    "typecheck:integrations": "npm --prefix integrations/pi run typecheck && npm --prefix integrations/tree-sitter run typecheck",
+    "verify": "npm run check && npm run typecheck:integrations && npm run test:integrations && npm run demo && npm run status"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.12.4"
+  }
+}
