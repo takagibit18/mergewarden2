@@ -33,7 +33,7 @@ Windows 默认数据目录是 `%LOCALAPPDATA%/MergeWarden2`，其他环境为 `~
 | `src/cli` | 审查、模型目录、报告历史、证据读取、环境诊断、死进程遗留锁清理 |
 | `integrations/tree-sitter` | 固定 Python grammar → 普通语法事实；模块、类、函数、方法、import、引用和调用位置 |
 | `src/graph` | 显式作用域/import resolver；HEAD 快照 SQLite；首次查询构图、缓存校验/重建、工作线程取消、分页与覆盖说明 |
-| `eval` / `src/eval` | 20 个冻结受控案例；同快照 Text-only / Text+Graph 消融、原始结果、语义匹配及质量/成本指标 |
+| `eval` / `src/eval` | 20 个冻结受控案例；同快照消融、质量/成本指标、原生 tool trace 归因、独立人工审核页与 provenance 校验 |
 
 CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code 的选择界面、证据跳转、stale 提示及 Windows/WSL 产品验收留到后续版本。忽略文件和未保存缓冲区不纳入。文本工具不会执行仓库代码。
 
@@ -44,6 +44,10 @@ CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code
 图不存在时延迟构建；未调用图工具的审查不会加载 parser 或创建图数据库。索引位于仓库外，绑定 snapshot、schema v2、resolver 和固定 parser 版本；损坏/未完成索引从冻结源码全量重建。图错误使本次结果保持 partial，不能变成 completed clean。
 
 评测命令见 [评测说明](eval/README.md)。`npm run eval -- --offline --all --output /outside/checkout/eval-run` 运行真实 Pi SDK 加脚本 provider，仅验证工程路径。`--live` 使用固定配置与明确环境变量；逐例语义匹配完成后才能汇总真实质量。Text-only 是内部消融，CLI 产品没有模式切换。
+
+`eval:traces` 从实际工具轨迹派生 finding 的 `discoveryPath`，保留 Graph → 新 caller → 源码读取 → accepted evidence 链，不采信模型自述，也不更改 finding 证据协议。`eval:human-review` 生成不含模型结果的逐例审核页；只有实际人工作答并通过 corpus/SHA 校验，才能生成审核后的 `annotationProvenance`。原始 case 与答案不会被这两个工具改写。
+
+完整 20-case GLM A/B 已实跑一次：两组各命中 11/12 个冻结缺陷，完整交付 Text 18/20、Graph 17/20。50 次 Graph 调用未形成严格的 graph_assisted finding；本次未观察到增量发现价值。5 次超时请求存在 usage 缺口，已报告 tokens 不等于完整计费记录。案例仍待用户独立人工复核；[完整验证与 trace 指标](docs/VALIDATION.md)。
 
 ## 验证与后续
 
