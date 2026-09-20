@@ -29,4 +29,6 @@ MVP 固定一个 Pi 会话、final_only 输出。中断后保留实际状态和�
 
 ## MVP 之后
 
+LocAgent retrieval 是已完成一轮受控挑战的内部实验入口，见[冻结协议](experiments/LOCAGENT_REPLICATION.md)。r2 的 8 × T0/G0/G1 没有出现新的 Graph 路径转化或 assisted finding，因此按预注册门槛停止，未扩大到 20 × 3，也不将 G1 替换为默认产品工具。该结果不证明底层 Graph 在真实大仓库无价值；新的语料、模型或其他论文机制需要另立实验，不能混入本轮结果。
+
 增量图更新、其他语言、SSH/容器、原会话续审、增量结果、Jev shadow、PR 发布和 MCP/ACP 独立立项。仓库继续私有；不选择公共许可证、不发布 Marketplace、不实现自动修复或自动合并。

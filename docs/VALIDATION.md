@@ -169,3 +169,29 @@ M0 历史基线 51 项及首次四组矩阵通过记录：[M0 CI](https://github
 M0 发现的首条 assistant 前延迟持久化已通过公开 API 的独占空文件初始化解决，原行为测试保留。当前强制同步及校验，不宣称 exactly-once 或数据库事务。
 
 v0.2 已实现 Python resolver/SQLite 与 20 个受控案例，BigModel GLM-5.3-Flash 的真实 CLI smoke、4-case 与完整 20-case A/B 详见上方实测；其他供应商未实测。VS Code/VSIX、Windows/WSL 产品验收、独立人工黄金集及 3 对公开项目评测尚未完成。未发布 Marketplace、公共许可证或版本标签。
+
+
+## LocAgent mechanism challenge · 2026-09-21
+
+实验基线 93d9da8，官方参考 4935b557326c154bad8e8dcf3747cc8d32d1f387。底层 Graph/resolver、r2 corpus、BASE_SYSTEM_PROMPT 和 finding/report 协议保持冻结。八例（5 defect、3 clean）与轮换顺序在新调用前登记；正式 24 次运行固定在 c9584d0，GLM-5.3-Flash、Pi 0.84.1、120 秒、40 tools、8192 max tokens、实际 thinkingLevel=medium。八组三臂实际配置一致（仅能力描述不同），执行前后指纹相同。
+
+| 实测 | T0 | G0 | G1 |
+|---|---:|---:|---:|
+| TP / FP / FN | 5 / 0 / 0 | 5 / 0 / 0 | 4 / 0 / 1 |
+| Precision / Recall / F1 | 1 / 1 / 1 | 1 / 1 / 1 | 1 / 0.8 / 0.889 |
+| Clean FPR | 0/3 | 0/3 | 0/3 |
+| 完整交付 | 7/8 | 4/8 | 5/8 |
+| 工具调用 | 85 | 106 | 92 |
+| search_text / read_source | 25 / 37 | 28 / 40 | 26 / 40 |
+| Graph/retrieval 调用 | 0 | 15 | 6 |
+| Graph/retrieval 返回 bytes | 0 | 17194 | 27191 |
+| Graph-assisted / novel→source | 0 / 0 | 0 / 0 | 0 / 0 |
+| Review latency 总计 ms | 755567 | 846911 | 886303 |
+
+各 arm 均存在中断 usage，因此完整 input/cacheRead/output/total 合计均为 null，不能当零消耗；逐例 SDK 已报告部分仍保留。14 条 accepted finding 的源码 SHA 与 24 份报告独立核验通过；语义匹配由 Codex 基于冻结源码与实际 claim 复核，不冒充独立人工标注。accepted partial finding 保留计分，失败仍在交付分母。G1 的 alias 候选描述正确 bug，但 reviewedPaths 含未变更文件而被拒绝，超时前未修正，最终记 FN。
+
+G1 的 3 次 SearchEntity 均命中，entity/content BM25 各参与 4 个查询阶段，另有 1 次非法 root 的 BM25 候选提示；3 次 traversal 请求深度大于 1，但没有首次返回于深度 >=2 的新实体。真实两跳能力在独立 snapshot smoke 中验证：policy.attempts ← adapter.total_attempts ← service.schedule；3 files、0 parse-incomplete、2 resolved、0 candidate、2 unresolved。该无模型 smoke 的 build 109.569 ms、cold request 238.489 ms、warm requests 130.782–136.405 ms，非大仓性能结论。
+
+首次 ff8c8e1 尝试因遗漏参考 invalid-root BM25 hints 而中断，保留 6 份报告和 1 次未完成尝试，未与正式 24 次混算。正式运行后单独修复大量 warnings 的小输出上限反例，并收紧 hint 曝光的 trace 归因；没有替换模型运行。v2 派生分析不改 raw/native，24 次归因结果全部不变。初次 155 项基线验证及后续本地/CI 日志均保留在仓库外；166 项最终确定性测试覆盖这些边界。
+
+原始、mapping、integrity、v1/v2 分析在仓库外 ../output/locagent-replication/challenge-c9584d0/；机器可读 [fidelity](../eval/locagent/locagent-replication-fidelity.json) 与 [冻结协议](experiments/LOCAGENT_REPLICATION.md) 记录适配。内容分块/预览、JS Snowball、fuzzy 顺序、索引生命周期等不等同原版；这是机制实验，不是论文指标复现。未达到 Stage D 门槛，未执行 20×3，不据此断言 Graph 在真实大仓库无价值。

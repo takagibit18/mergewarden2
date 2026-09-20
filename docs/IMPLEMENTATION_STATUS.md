@@ -1,6 +1,8 @@
-# 当前实现状态 · 2026-09-20
+# 当前实现状态 · 2026-09-21
 
-v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前本地 152 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实 GLM CLI 审查/重跑通过；原 r1 的完整 20-case A/B 中 Text-only 完整交付 18/20，Text+Graph 17/20，两组按原 gold 均命中 11/12。50 次 Graph 调用未产生严格归因的 graph_assisted finding。用户改为委托 Agent 复核后，发现 clean 反例、接口范围和 severity 问题，已另冻 r2，保留旧版字节和成绩。Agent 状态不冒充独立人工审核，r2 尚无真实模型成绩；记录见 VALIDATION。未打版本标签。
+实验性 LocAgent retrieval scaffold 已接入同一 ReviewEngine，限定为内部 T0/G0/G1 配置，产品工具默认不变。固定 r2 的 8-case × 3-arm GLM 对照已完成，完整交付 T0 7/8、G0 4/8、G1 5/8；按 accepted findings 评分 TP 为 5/5/4，FP 均为 0。Graph-assisted 和 novel→source 转化均为 0，未启动 full 20-case。原始运行固定在 c9584d0，后续边界/trace 修正单独记录；[协议与适配边界](experiments/LOCAGENT_REPLICATION.md)。下文 r1/r2 初次验收数字为历史阶段记录。
+
+v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前本地 152 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实 GLM CLI 审查/重跑通过；原 r1 的完整 20-case A/B 中 Text-only 完整交付 18/20，Text+Graph 17/20，两组按原 gold 均命中 11/12。50 次 Graph 调用未产生严格归因的 graph_assisted finding。用户改为委托 Agent 复核后，发现 clean 反例、接口范围和 severity 问题，已另冻 r2，保留旧版字节和成绩。Agent 状态不冒充独立人工审核，修订时 r2 尚无真实模型成绩；现已完成上面的八例挑战，记录见 VALIDATION。未打版本标签。
 
 | 模块 | 状态 | 未完成边界 |
 |---|---|---|
@@ -13,7 +15,7 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 | CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
 | Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、SQLite v2、按需两工具、可终止工作线程 | 只索引 head；动态 receiver、全类型推断及增量更新不支持 |
 | VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
-| 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档，执行/评分/trace/审核可显式选 corpus；逐例修订 lineage 与 Agent provenance | r1 真实集 5 次超时且含标注争议；r2 无真实模型结果；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
+| 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；逐例语义 mapping 与 native trace 派生归因 | r2 未执行全 20-case 新对照；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
 
 资源上限：单文件 1 MiB，捕获最多 10,000 个路径、100 MiB 内容，最多 200 个变更路径；源码最多每次 200 行/32 KiB，差异按页读取，搜索最多 100 个结果。超限会拒绝、明确不可审查或返回截断；不能据此认定无缺陷。工作区符号链接路径拒绝读取；提交/index 的符号链接、子模块、二进制、超大文件不能计入文本审查覆盖。
 

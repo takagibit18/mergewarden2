@@ -57,3 +57,10 @@ CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code
 - [原架构正文](docs/ARCHITECTURE.md) 和 [DOCX](docs/MergeWarden2_Top_Level_Design.docx) 是输入骨架的历史材料；当前实现以状态表为准。
 
 VSIX、WSL 产品验收、独立人工复核的真实项目黄金集及 3 对公开项目提交评测尚未交付。当前 20 例是调用前冻结的受控样例，理由由本次实现预先编写，不冒充独立人工标注。没有 Marketplace 发布、自动修复、自动合并、PR 评论或 Jev 调用。
+
+
+## LocAgent retrieval 内部实验
+
+内部 G1 通过 search_entity（exact／BM25／fuzzy）与受控 traverse_graph 调用同一冻结 Graph，read_source 继续负责 finding evidence。产品仍默认原有图工具；没有新增产品模式。运行方式与适配限制见 [实验协议](docs/experiments/LOCAGENT_REPLICATION.md)。
+
+r2 的 8-case × T0/G0/G1 实测已完成：F1 为 1.00／1.00／0.889，完整交付 7/8／4/8／5/8，Graph-assisted 与 novel→source 均为 0。未达到扩大实验门槛，未执行 full 20×3。该受控小样本不能证明真实大仓库的 Graph 价值；详见 [验证记录](docs/VALIDATION.md)。

@@ -123,6 +123,9 @@ export class LocAgentRetrieval {
     if(hints.length)result.warnings.push('Invalid start entities were not traversed. BM25 hints identify candidates only; retry with an exact returned entity ID. Empty output does not establish absence.');
     while(size(result)>maxBytes-512&&hints.some(h=>h.candidates.length)){hints.findLast(h=>h.candidates.length)!.candidates.pop();result.truncated=true;}
     while(size(result)>maxBytes-512&&hints.length){hints.pop();result.truncated=true;}
+    let omittedDiagnostics=false;
+    while(size(result)>maxBytes-512&&result.warnings.length>1){result.warnings.shift();result.truncated=true;omittedDiagnostics=true;}
+    if(omittedDiagnostics)result.warnings.unshift('Some diagnostic details were omitted to respect maxBytes; inspect coverage.');
     const incoming=new Map<string,RelationFact[]>(),outgoing=new Map<string,RelationFact[]>();
     for(const edge of this.data.relations){outgoing.set(edge.fromId,[...outgoing.get(edge.fromId)??[],edge]);incoming.set(edge.toId,[...incoming.get(edge.toId)??[],edge]);}
     const fits=()=>size({...result,tree:lines.join('\n')})<=maxBytes-512;

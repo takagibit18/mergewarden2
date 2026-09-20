@@ -63,3 +63,9 @@ test('reference invalid traversal root recovery returns BM25 hints without inven
  assert.equal(page.coverage.indexedFiles,6);assert.ok(Buffer.byteLength(JSON.stringify(page))<=2048);
  const retry=r.traverse(walk({startEntities:[page.hints[0].candidates[0].entityId]}));assert.equal(retry.items[0].entityId,'m');
 });
+test('diagnostic-heavy unknown-root responses obey requested byte cap',()=>{
+ const data=fixture();data.warnings=Array(10).fill('warning '.repeat(64));
+ const result=new LocAgentRetrieval(data).traverse(walk({startEntities:['unknown'],maxBytes:2048}));
+ assert.ok(Buffer.byteLength(JSON.stringify(result))<=2048);assert.equal(result.truncated,true);
+ assert.equal(result.coverage.indexedFiles,6);
+});

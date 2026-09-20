@@ -103,5 +103,22 @@
     "offlinePi": "integrations/pi/tests/locagent.test.mjs",
     "qualityClaim": "None; live challenge evidence is required."
   },
-  "fidelityCorrection": "ff8c8e1 omitted invalid-root BM25 hints; six reports and one interrupted attempt preserved outside checkout. Corrected regression and all-arm restart, with unchanged cases/model/prompt/budgets."
+  "fidelityCorrection": "ff8c8e1 omitted invalid-root BM25 hints; six reports and one interrupted attempt preserved outside checkout. Corrected regression and all-arm restart, with unchanged cases/model/prompt/budgets.",
+  "liveChallenge": {
+    "implementationCommit": "c9584d0",
+    "cases": 8,
+    "attempts": 24,
+    "corpusUnchanged": true,
+    "allArmConfigurationsVerified": true,
+    "nativeTraceAndReportIntegrityVerified": true,
+    "graphAssistedFindings": 0,
+    "novelEntityToSource": 0,
+    "stageDExecuted": false,
+    "interpretation": "No retrieval benefit demonstrated on this synthetic review subset; not a reproduction of paper results."
+  },
+  "postRunHardening": [
+    "Diagnostic-heavy invalid roots now respect small output limits; stress-test regression, not triggered in the challenge.",
+    "Trace v2 excludes prior BM25 hint exposure from novelty and adds separate requested/discovered hop diagnostics; all 24 attribution outcomes unchanged.",
+    "Raw/native results remain on c9584d0; post-run code was not evaluated by replacement live runs."
+  ]
 }
