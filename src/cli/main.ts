@@ -45,7 +45,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "help" || command === "--help") { console.log(HELP); return 0; }
   if (command === "demo") { await (await import("./demo.ts")).demo(); return 0; }
   if (command === "status") {
-    console.log(JSON.stringify({ milestone: "v0.1 implementation; real-model acceptance pending", review: "Pi + frozen source, CLI, final-only advisory reports", graph: "Python grammar only; resolver/index pending", ide: "pending", liveModelValidated: false, advisor: "off" }, null, 2)); return 0;
+    console.log(JSON.stringify({ milestone: "v0.2 Python graph + reproducible evaluation; quality benefit unproven", review: "Pi + frozen source, CLI, final-only advisory reports", graph: "Lazy HEAD Python scopes/import resolver + snapshot-bound SQLite + graph tools", evaluation: "20 frozen controlled cases; text-only ablation internal", ide: "pending", liveModelValidated: true, liveModelValidation: { provider: "bigmodel", model: "glm-5.3-flash", date: "2026-09-20", scope: "Controlled Python CLI smoke; 4-case A/B included one graph-arm timeout. No general quality claim." }, advisor: "off" }, null, 2)); return 0;
   }
   const options = parse(argv.slice(1));
   const state = resolve(options.get("state") ?? join(process.env.LOCALAPPDATA ?? homedir(), "MergeWarden2"));
