@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-要求 Node.js **22.19+**、Git 和 npm。
+要求 Node.js **22.19+**、Git 和 npm。完整开发验证与真实语料构造工具另需 **Python 3.10+**（仅标准库，不执行被审项目代码）。
 
 ```sh
 npm run setup
@@ -33,7 +33,7 @@ Windows 默认数据目录是 `%LOCALAPPDATA%/MergeWarden2`，其他环境为 `~
 | `src/cli` | 审查、模型目录、报告历史、证据读取、环境诊断、死进程遗留锁清理 |
 | `integrations/tree-sitter` | 固定 Python grammar → 普通语法事实；模块、类、函数、方法、import、引用和调用位置 |
 | `src/graph` | 显式作用域/import resolver；HEAD 快照 SQLite；首次查询构图、缓存校验/重建、工作线程取消、分页与覆盖说明 |
-| `eval` / `src/eval` | 20 个冻结受控案例；同快照消融、质量/成本指标、原生 tool trace 归因、独立人工审核页与 provenance 校验 |
+| `eval` / `src/eval` | 20 个冻结受控案例；同快照消融、质量/成本指标、原生 tool trace 归因；另有独立的真实 PR 候选池与 Git 快照预检入口，候选不参与正式评分 |
 
 CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code 的选择界面、证据跳转、stale 提示及 Windows/WSL 产品验收留到后续版本。忽略文件和未保存缓冲区不纳入。文本工具不会执行仓库代码。
 

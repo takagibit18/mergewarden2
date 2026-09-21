@@ -1,5 +1,33 @@
 # Python retrieval evaluation
 
+## 真实 PR 候选扩充（独立于受控 Golden）
+
+`real/manifests/candidates.index.json` 固定真实 PR 候选的 repository、完整来源 SHA、source-row hash 和准入状态；对应 lock 校验字节。它包含 40 个 c-CRAB 正例候选和 64 个 SWRBench source-clean 候选，**不是已审核的 40-case gold**。`screening.json` 只记录 Agent 对原始评语的功能范围筛选，不把排除的评语对应 PR 改标 clean，也不声称人工审查。已有受控 r1/r2 的文件、答案及历史成绩独立保存。
+
+`real/tools/realgolden.py` 改编自用户提供的 RealGolden40 构造包，使用 Python 3.10+ 标准库。`sources.lock.json` 的 revision 2 保留同一个上游 commit，只纠正 Stage 3 的错误 size/blob，保留原记录和核验 URL。原始数据、源码、gold、审核记录和运行结果均放在 checkout 外。下载只接受锁定字节，不接受最新分支替换。
+
+```sh
+npm run eval:real:build -- fetch --cache ../realgolden-work/upstream
+npm run eval:real:build -- import --cache ../realgolden-work/upstream --out ../realgolden-work/draft-v1
+npm run eval:real:probe -- --selection eval/real/manifests/pilot.json --output ../realgolden-work/pilot-v1 --offline
+```
+
+前两条命令下载及导入待审候选，不能自动接受标签。第三条验证四个预留工程 pilot 的原始 Git 对象、SnapshotStore、Graph 和 Pi SDK 报告交付。它只注册脚本 provider，刻意提交空 findings，token 是合成值；600 秒/1000 tools 是离线工程预算，不是已冻结的真人模型实验预算。省略 `--offline` 只做 Git/Snapshot/差异分页预检。`--repositories DIRECTORY` 可以复用有任务身份回执的对象缓存；输出目录不可重复使用。
+
+`real/adapter.mjs` 使用空工作目录中的原始 Git 对象，不写出源码文件、不重造提交、不运行 checkout filters、hooks、Python、setup 或项目测试。SnapshotStore 在 commits 输入下读取原始 blob；所有工具和报告继续走同一个 ReviewEngine。公开任务只允许 case ID、仓库、base/reviewed SHA、语言和输入策略；source comments、fixes、gold 不进入模型输入。每个缓存的 origin 和任务身份都必须匹配。
+
+审核必须检查**实际 base→reviewed 差异**是否与原始标签适用范围相同。上游 base 可能来自更晚或不同分支，产生额外回退。`sourceReviewPaths` 的不匹配是阻断证据；路径相同仍需检查 hunk 和语义，不能据此认定 clean。不得静默换 base、用 merged SHA 或倒放补丁。更正需新版本、Git 历史依据和重新审核。审核必须明确 agent/human、diff scope、context requirement、源码锚点与 severity；不足 24 defect + 16 clean 时 freeze 失败。
+
+```sh
+node --experimental-strip-types eval/real/assess.mjs --candidates ../realgolden-work/draft-v1/candidates.hydrated.jsonl --probe ../realgolden-work/pilot-v1/result.json --output ../realgolden-work/assessment-v1
+```
+
+该入口生成当前候选阶段的 `readiness.json`，不启动模型。真实语料还需要合格的最终 tasks/gold/audit/lock、适配真实任务的 live 入口、正式集之外的模型 pilot 和统一预算。旧 `eval/run.mjs` 与 LocAgent runner 仍读取受控 fixture 格式，不能直接传入这份真实候选清单。真实开放标签还需区分 `new_valid`、`duplicate`、`unadjudicated`，不能沿用旧 scorer 把所有未匹配预测自动算作 FP。未完成这些条件前不开展正式 A/B。
+
+`npm run verify` 包含离线构造器准入测试；不下载上游、不访问模型。原始数据/项目许可证沿用各自来源，本仓库未打包第三方源码或原始评语。
+
+## 受控 Golden
+
 这是同一个 ReviewEngine 的内部工具消融，不是产品模式。`cases.json` 当前为 **controlled-python-v02-20-r2**：4 单文件、4 跨文件、2 多跳、2 import/scope 缺陷，8 个 clean 对照。每例保存仓库逻辑身份、真实 Git base/head SHA、源码、定位、严重性、行为和人工可读理由。r2 经用户授权的 Agent 静态复核修订，作者已看过 r1 模型结果；在 r2 模型调用前冻结，不是独立人工标注或未见结果的 holdout。
 
 `corpus.lock.json` 固定字节摘要。`materialize.mjs` 只用 Git 对象命令重建相同提交，不执行 Python，不 checkout hooks。修订必须有明确源码依据、授权和新 corpus 身份；不能为当前预测改答案。
