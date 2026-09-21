@@ -25,3 +25,8 @@ test('resume retains failed attempt, skips complete attempts, and refuses task d
  assert.equal(calls,3);assert.equal(results[0].attempt,2);assert.equal(JSON.parse(await readFile(join(output,'attempts/test/0/T0/1.json'),'utf8')).status,'failed');
  await assert.rejects(executeBatch({output,plan:planBatch([{...task,reviewed_sha:'c'.repeat(40)}],{armNames:['T0','G0']}),identity:{corpus:'a'},resume:true,execute:async()=>{throw Error('must not run');}}),/drift/);
 });
+test('formal first-attempt policy never replaces an already started result',async()=>{
+ const output=await mkdtemp(join(tmpdir(),'mw-real-first-attempt-')),plan=planBatch([task],{armNames:['T0']}),identity={corpus:'formal',attemptPolicy:'first_attempt'};let calls=0;
+ const first=await executeBatch({output,plan,identity,execute:async()=>{calls++;return {status:'partial',delivered:true,findings:[]};}});assert.equal(first[0].attempt,1);assert.equal(first[0].status,'partial');
+ const resumed=await executeBatch({output,plan,identity,resume:true,execute:async()=>{calls++;return {status:'completed',delivered:true,findings:[]};}});assert.equal(calls,1);assert.equal(resumed[0].attempt,1);assert.equal(resumed[0].status,'partial');
+});

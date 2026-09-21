@@ -41,7 +41,7 @@ CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code
 
 图工具只有 `graph_lookup`（精确 symbol/限定名）和 `graph_neighbors`（指定关系、方向和分页的一跳查询）。图只索引当前快照的 **head**，不会把 base/head 混在一起。返回 resolution、coverage 和 warnings；空结果不能证明没有调用者。图查询后的 finding 证据仍须用 `read_source` 实际读取和核对。动态 receiver、外部依赖、复杂动态绑定保持不确定；[解析边界](integrations/tree-sitter/README.md)。
 
-图不存在时延迟构建；未调用图工具的审查不会加载 parser 或创建图数据库。索引位于仓库外，绑定 snapshot、schema v2、resolver 和固定 parser 版本；损坏/未完成索引从冻结源码全量重建。图错误使本次结果保持 partial，不能变成 completed clean。
+图不存在时延迟构建；未调用图工具的审查不会加载 parser 或创建图数据库。索引位于仓库外，绑定 snapshot、schema v2、resolver 和固定 parser 版本；损坏/未完成索引从冻结源码全量重建。图是可选导航能力：查询失败会在 manifest 和报告摘要中记录 navigation degraded，Agent 可回退到文本/源码工具；已满足差异覆盖、证据和最终提交门槛的 review 不会仅因可选图失败被降级。
 
 评测命令见 [评测说明](eval/README.md)。`npm run eval -- --offline --all --output /outside/checkout/eval-run` 运行真实 Pi SDK 加脚本 provider，仅验证工程路径。`--live` 使用固定配置与明确环境变量；逐例语义匹配完成后才能汇总真实质量。Text-only 是内部消融，CLI 产品没有模式切换。
 

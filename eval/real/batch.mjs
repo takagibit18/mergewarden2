@@ -47,6 +47,8 @@ export async function executeBatch({output,plan,identity,resume=false,execute,si
    const existing=(await readdir(directory)).filter(x=>/^\d+\.json$/.test(x)).sort((a,b)=>Number(a.split('.')[0])-Number(b.split('.')[0]));
    const attempts=await Promise.all(existing.map(x=>readFile(join(directory,x),'utf8').then(JSON.parse)));
    if(attempts.some(a=>a.taskSha256!==job.taskSha256||digest(a.task)!==job.taskSha256||a.runKey!==job.runKey||a.arm!==job.arm||a.repeat!==job.repeat||a.identitySha256!==batch.identitySha256))throw Error('Attempt identity drift');
+   const firstAttempt=identity.attemptPolicy==='first_attempt'?attempts[0]:undefined;
+   if(firstAttempt){results.push(firstAttempt);continue;}
    const complete=attempts.findLast(a=>a.status==='completed'&&a.delivered);
    if(complete){results.push(complete);continue;}
    const attempt=existing.length?Math.max(...existing.map(x=>Number(x.split('.')[0])))+1:1;

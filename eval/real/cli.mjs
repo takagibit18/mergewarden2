@@ -1,9 +1,9 @@
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {resolve,join,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {validateSelection,freezeCorpus,verifyBundle} from './admission.mjs';
 import {createExperimentLock} from './experiment.mjs';
-import {scoreOpenLabel} from './open-label.mjs';
+import {buildBlindAdjudication,scoreOpenLabel,unblindAdjudications} from './open-label.mjs';
 import {isolatedState,writeJson} from '../../src/infrastructure/files.ts';
 import {RealCorpusAdapter} from './cache.mjs';
 import {profileTask} from './profile.mjs';
@@ -14,7 +14,7 @@ const get=name=>{if(!values['--'+name])throw Error('Missing --'+name);return val
 const json=async name=>JSON.parse(await readFile(resolve(get(name)),'utf8'));
 const rows=async name=>(await readFile(resolve(get(name)),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
 const root=fileURLToPath(new URL('../../',import.meta.url));
-const outputPath=async()=>{const target=resolve(get('output'));return join(await isolatedState(dirname(target),root),basename(target));};
+const outputPath=async(name='output')=>{const target=resolve(get(name));return join(await isolatedState(dirname(target),root),basename(target));};
 if(command==='prepare'||command==='profile'){
  const {data}=await verifyBundle(resolve(get('corpus')),{publicOnly:true}),output=await outputPath();
  const state=await isolatedState(resolve(get('state')),root),adapter=new RealCorpusAdapter({cache:resolve(get('cache')),stateDir:state,configuration:{provider:'bigmodel',modelId:'glm-5.3-flash',policy:'final_only',promptVersion:1}});
@@ -40,4 +40,10 @@ if(command==='prepare'||command==='profile'){
  const runs=(await json('runs')).runs,gold=await rows('gold'),adjudications=await rows('adjudications');
  const output=await outputPath();
  await writeJson(output,scoreOpenLabel({runs,gold,adjudications}));console.log(JSON.stringify({output}));
-}else throw Error('Commands: admit/freeze --pool JSONL --selection JSON --sources JSON [--output DIR]; verify --corpus DIR; lock --corpus DIR --kind reserve|formal --timeout-ms N --max-tools N --output JSON [--pilot DIR]; score --runs JSON --gold JSONL --adjudications JSONL --output JSON');
+}else if(command==='blind'){
+ const runs=(await json('runs')).runs,gold=await rows('gold'),output=await outputPath(),keyOutput=await outputPath('key-output'),{packet,key}=buildBlindAdjudication({runs,gold});
+ await writeJson(output,packet);await writeJson(keyOutput,key);console.log(JSON.stringify({output,keyOutput,entries:packet.entries.length}));
+}else if(command==='unblind'){
+ const judgments=await json('judgments'),key=await json('key'),output=await outputPath(),receipts=unblindAdjudications({judgments,key});
+ await writeFile(output,receipts.map(x=>JSON.stringify(x)).join('\n')+'\n',{flag:'wx'});console.log(JSON.stringify({output,receipts:receipts.length,blindPacketSha256:key.packetSha256}));
+}else throw Error('Commands: admit/freeze --pool JSONL --selection JSON --sources JSON [--output DIR]; verify --corpus DIR; lock --corpus DIR --kind reserve|formal --timeout-ms N --max-tools N --output JSON [--pilot DIR]; blind --runs JSON --gold JSONL --output PACKET --key-output PRIVATE_KEY; unblind --judgments JSON --key PRIVATE_KEY --output JSON; score --runs JSON --gold JSONL --adjudications JSONL --output JSON');

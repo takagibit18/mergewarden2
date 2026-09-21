@@ -1,5 +1,7 @@
 # 当前实现状态 · 2026-09-21
 
+RealGolden 三臂 harness 已分离“审查完成”与“结构导航可用性”：G0/G1 共享同一中性 `NAVIGATION_POLICY_PROMPT`，各自 capability 只说明工具名、调用关系和机械语义；T0 不接收该 system policy 且仍只暴露四个文本/提交工具。Graph/retrieval 错误保留显式 tool error/warning、`metrics.navigation` 诊断和报告限制说明，但不再单独 poison 已满足差异覆盖、源码证据、最终提交与交付门槛的业务完成态。正式 RealGolden 锁固定 `first_attempt`，reserve 保留 operational retry；盲审包将 arm、run key、Graph 调用与 trace 保留在私有映射中，不展示给裁定者。
+
 实验性 LocAgent retrieval scaffold 已接入同一 ReviewEngine，限定为内部 T0/G0/G1 配置，产品工具默认不变。固定 r2 的 8-case × 3-arm GLM 对照已完成，完整交付 T0 7/8、G0 4/8、G1 5/8；按 accepted findings 评分 TP 为 5/5/4，FP 均为 0。Graph-assisted 和 novel→source 转化均为 0，未启动 full 20-case。原始运行固定在 c9584d0，后续边界/trace 修正单独记录；[协议与适配边界](experiments/LOCAGENT_REPLICATION.md)。下文 r1/r2 初次验收数字为历史阶段记录。
 
 v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前本地 152 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实 GLM CLI 审查/重跑通过；原 r1 的完整 20-case A/B 中 Text-only 完整交付 18/20，Text+Graph 17/20，两组按原 gold 均命中 11/12。50 次 Graph 调用未产生严格归因的 graph_assisted finding。用户改为委托 Agent 复核后，发现 clean 反例、接口范围和 severity 问题，已另冻 r2，保留旧版字节和成绩。Agent 状态不冒充独立人工审核，修订时 r2 尚无真实模型成绩；现已完成上面的八例挑战，记录见 VALIDATION。未打版本标签。

@@ -40,13 +40,13 @@ npm run eval:real:admission -- lock --corpus eval/real/corpora/mergewarden-real-
 npm run eval:real-live -- --live --corpus eval/real/corpora/mergewarden-real-python40-v1 --experiment ../real-work/reserve-lock.json --cache ../real-work/repositories --output ../real-work/reserve-run
 ```
 
-300 秒/100 tools 是 reserve 的初始运行配置示例，正式预算必须根据本机 pilot 冻结。锁固定 GLM-5.3-Flash、Pi、完整 prompt（含实际 cwd）、实现摘要和 Git commit；运行中不可改变。`--subset ID,ID`、`--arms T0,G0,G1`、`--repeat 2` 可缩小任务或重复运行；`--resume` 要求完全相同 plan/config，仅补跑未完整交付的 job，并保留每次失败尝试及 native session/report。正常中断可续跑；无法确认拥有者的锁不自动清理。
+300 秒/100 tools 是 reserve 的初始运行配置示例，正式预算必须根据本机 pilot 冻结。锁固定 GLM-5.3-Flash、Pi、完整 prompt（含实际 cwd）、实现摘要和 Git commit；运行中不可改变。`--subset ID,ID`、`--arms T0,G0,G1`、`--repeat 2` 可缩小任务或重复运行。reserve 锁使用 `operational_retry`：`--resume` 可仅补跑未完整交付的 job，并保留每次失败尝试及 native session/report。formal 锁强制 `first_attempt`：一个 run key 第一次开始后，completed/partial/failed/timeout/中断记录都是唯一正式结果，resume 只运行从未开始的 job。无法确认拥有者的锁不自动清理。
 
 `lock` 另支持 `--max-tokens 16384 --provider-reasoning-effort high`：通过 Pi 公共 provider 注册接口，仅在评测实例中设置预算，复用同一运行循环，产品 catalog 不变。默认仍为 8192 / `provider-default`。Pi 的 `medium` 是客户端档位；旧 catalog 不发送 `reasoning_effort`，不能将它冒充服务端 medium。显式档位支持 low/high/max，锁同时记录客户端和服务端设置；请求级离线测试验证实际 HTTP payload。调整必须新建 reserve 锁及输出目录，并让三组全部使用同一配置；正式锁必须匹配所依据 pilot 的模型预算。截断、超时和初次网络失败不能由重试成功覆盖。
 
 正式 `lock --kind formal --pilot ../real-work/reserve-run` 必须读取至少 6 个永久预留 task 的三组完成记录，校验原生交付及同一 snapshot，并要求 coverage 和实测 pilot 有调查余量。指定新 `--run-output` 和相同模型配置；只有返回 `READY` 的正式锁可用于 formal tasks。未完成 pilot 时不可启动正式付费实验，reserve 结果不进入正式质量报告。
 
-`score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用 hash-bound 人工或 Agent 裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。
+正式预测裁定先运行 `blind --runs latest.json --gold hidden/gold.jsonl --output packet.json --key-output private-key.json`。裁定者只收到匿名 prediction、源码定位/证据、hidden reference 与 fix evidence；arm、run key、Graph 调用、metrics 和 trace 只在私有 key 中。填写后用 `unblind --judgments judgments.json --key private-key.json --output judgments.jsonl` 恢复 hash-bound scoring identity。`score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用这些裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。
 
 ## 受控 Golden
 
@@ -89,7 +89,7 @@ npm run eval -- --live --all --repeats 3 --output /outside/checkout/live-repeat
 
 默认 smoke 固定 4 例，可用 `--cases single-zero,cross-key` 选择子集；`--all` 跑 20 例。`--offline` 使用真实 Pi SDK 与刻意提交空 finding 的脚本 provider，token 是合成值，不能作为模型质量/成本证据。`--live` 从 `experiment.json` 指定的环境变量读取密钥，当前固定 bigmodel/glm-5.3-flash、120 秒、40 次工具预算。密钥不进入配置/结果文件。
 
-两组共享相同 snapshot 与 final_only/source evidence/schema/report delivery。v0.1 system prompt 保持冻结，Graph 组只增加能力说明；Pi 会附加 cwd，所以 A/B 固定相同仓库外 cwd。每组记录有效 system prompt、thinking level、API、endpoint、maxTokens、包锁 hash，逐对比较。运行前后核对整个引擎、适配器、schema 和 eval 源码摘要；实验途中修改实现会阻止有效比较。重复运行交替组顺序；Graph 缓存可在同 snapshot 后续运行复用，需按 cold/warm 指标解释成本。
+各臂共享相同 snapshot 与 final_only/source evidence/schema/report delivery。T0 只用 BASE；G0/G1 在同一 BASE 上共享完全相同的中性 navigation policy，差异只限于各自 interface/retrieval 的机械说明。该 policy 说明 untouched context trigger、caller/reference/consumer/dependency 发现、不用结构导航重复确认已读位置，以及失败时回退文本/源码；不强制 Graph 调用。Pi 会附加 cwd，所以 A/B 固定相同仓库外 cwd。每组记录有效 system prompt、thinking level、API、endpoint、maxTokens、包锁 hash，逐对比较。运行前后核对整个引擎、适配器、schema 和 eval 源码摘要；实验途中修改实现会阻止有效比较。重复运行交替组顺序；Graph 缓存可在同 snapshot 后续运行复用，需按 cold/warm 指标解释成本。
 
 ## 原始结果与匹配
 

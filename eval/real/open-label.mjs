@@ -3,6 +3,26 @@ import {sha256} from '../../src/infrastructure/files.ts';
 export const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b,'en'))):v);
 export const digest=value=>sha256(canonical(value));
 const ratio=(n,d)=>d?n/d:null;
+/** Produce a reviewer packet with no arm, run key, tool metrics, or trace. The
+ * private key stays with the experiment operator and restores scoring identity. */
+export function buildBlindAdjudication({runs,gold}) {
+ const goldById=new Map(gold.map(x=>[x.id,x]));if(goldById.size!==gold.length)throw Error('Duplicate gold task');
+ const entries=[],mappings=[];
+ for(const run of runs){const reference=goldById.get(run.caseId);if(!reference)throw Error('Missing gold task');
+  for(const prediction of run.findings){const itemId='blind-'+digest({runKey:run.runKey,predictionId:prediction.id,predictionSha256:digest(prediction),goldSha256:digest(reference)}).slice(0,16);
+   entries.push({itemId,source:{repository:run.task?.repository??null,baseSha:run.task?.base_sha??null,reviewedSha:run.task?.reviewed_sha??null,evidence:prediction.evidence},prediction,hiddenReference:{label:reference.label,goldenFindings:reference.goldenFindings}});
+   mappings.push({itemId,runKey:run.runKey,predictionId:prediction.id,predictionSha256:digest(prediction),goldSha256:digest(reference)});
+  }
+ }
+ entries.sort((a,b)=>a.itemId.localeCompare(b.itemId,'en'));mappings.sort((a,b)=>a.itemId.localeCompare(b.itemId,'en'));
+ const packet={schemaVersion:1,kind:'blind-real-pr-adjudication',reviewerVisibleFields:['anonymous prediction','source identity/evidence','hidden reference evidence','fix evidence'],entries};
+ const packetSha256=digest(packet);return {packet:{...packet,packetSha256},key:{schemaVersion:1,kind:'blind-real-pr-adjudication-key',packetSha256,mappings}};
+}
+export function unblindAdjudications({judgments,key}) {
+ if(judgments.packetSha256!==key.packetSha256||!Array.isArray(judgments.entries)||!Array.isArray(key.mappings))throw Error('Blind adjudication packet drift');
+ const byId=new Map(key.mappings.map(x=>[x.itemId,x]));if(byId.size!==key.mappings.length)throw Error('Duplicate blind mapping');const seen=new Set();
+ return judgments.entries.map(j=>{const mapping=byId.get(j.itemId);if(!mapping||seen.has(j.itemId))throw Error('Unknown or duplicate blind item');seen.add(j.itemId);const {itemId,...decision}=j;return {...decision,...mapping,blindPacketSha256:key.packetSha256};});
+}
 /** No automatic semantic matches. Adjudication is a separate, hash-bound receipt.
  * Duplicates are redundant reports, excluded from precision rather than counted as
  * new true positives. Unknown predictions remain unknown, including in clean PRs.

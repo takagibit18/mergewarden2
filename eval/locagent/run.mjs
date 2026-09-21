@@ -7,7 +7,7 @@ import {ReviewEngine} from '../../src/engine/review.ts';
 import {SnapshotStore} from '../../src/snapshot/store.ts';
 import {readRun} from '../../src/engine/reports.ts';
 import {isolatedState,sha256,writeJson} from '../../src/infrastructure/files.ts';
-import {BASE_SYSTEM_PROMPT,GRAPH_CAPABILITY_PROMPT} from '../../src/engine/prompt.ts';
+import {BASE_SYSTEM_PROMPT,GRAPH_CAPABILITY_PROMPT,NAVIGATION_POLICY_PROMPT} from '../../src/engine/prompt.ts';
 import {LOCAGENT_CAPABILITY_PROMPT} from '../../src/experiments/locagent/contracts.ts';
 import {analyzeRetrieval} from '../../src/experiments/locagent/traces.ts';
 import {materializeCase} from '../materialize.mjs';
@@ -45,7 +45,7 @@ for(const [caseIndex,item] of cases.entries()){
   }catch{entry.error='Runtime, delivery, or trace extraction failed; preserve state and do not infer clean.';}
   entry.elapsedMs=performance.now()-started;raw.runs.push(entry);group.push(entry);await writeJson(join(output,'raw.json'),raw);
  }
- const normalized=group.map(r=>r.manifest?.runtimeConfiguration?{...r.manifest.runtimeConfiguration,systemPrompt:r.manifest.runtimeConfiguration.systemPrompt.replace('\n'+GRAPH_CAPABILITY_PROMPT,'').replace('\n'+LOCAGENT_CAPABILITY_PROMPT,'')}:null);
+ const normalized=group.map(r=>r.manifest?.runtimeConfiguration?{...r.manifest.runtimeConfiguration,systemPrompt:r.manifest.runtimeConfiguration.systemPrompt.replace('\n'+NAVIGATION_POLICY_PROMPT+'\n'+GRAPH_CAPABILITY_PROMPT,'').replace('\n'+NAVIGATION_POLICY_PROMPT+'\n'+LOCAGENT_CAPABILITY_PROMPT,'')}:null);
  const verified=normalized.every(Boolean)&&normalized.every(n=>JSON.stringify(n)===JSON.stringify(normalized[0]));
  raw.armAudits.push({caseId:item.id,verified,systemPromptHashes:group.map(r=>({arm:r.arm,sha256:r.manifest?.runtimeConfiguration?sha256(r.manifest.runtimeConfiguration.systemPrompt):null})),normalizedConfiguration:normalized[0]});await writeJson(join(output,'raw.json'),raw);
  if(normalized.every(Boolean)&&!verified)throw Error('Effective arm configuration drift');
