@@ -1,25 +1,30 @@
-# 实现状态 · 2026-09-20
+# 当前实现状态 · 2026-09-21
 
-本次完成 M0 开发仓库搭建，不等同于 M1 产品交付。原始架构 DOCX / Markdown 保留为设计历史快照。
+实验性 LocAgent retrieval scaffold 已接入同一 ReviewEngine，限定为内部 T0/G0/G1 配置，产品工具默认不变。固定 r2 的 8-case × 3-arm GLM 对照已完成，完整交付 T0 7/8、G0 4/8、G1 5/8；按 accepted findings 评分 TP 为 5/5/4，FP 均为 0。Graph-assisted 和 novel→source 转化均为 0，未启动 full 20-case。原始运行固定在 c9584d0，后续边界/trace 修正单独记录；[协议与适配边界](experiments/LOCAGENT_REPLICATION.md)。下文 r1/r2 初次验收数字为历史阶段记录。
 
-| 模块 | 当前状态 | 尚未具备的能力 |
+v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前本地 152 项测试和 Windows/Linux × Node 22/24 远端 CI 已通过。真实 GLM CLI 审查/重跑通过；原 r1 的完整 20-case A/B 中 Text-only 完整交付 18/20，Text+Graph 17/20，两组按原 gold 均命中 11/12。50 次 Graph 调用未产生严格归因的 graph_assisted finding。用户改为委托 Agent 复核后，发现 clean 反例、接口范围和 severity 问题，已另冻 r2，保留旧版字节和成绩。Agent 状态不冒充独立人工审核，修订时 r2 尚无真实模型成绩；现已完成上面的八例挑战，记录见 VALIDATION。未打版本标签。
+
+| 模块 | 状态 | 未完成边界 |
 |---|---|---|
-| 仓库工程化 | 三个真实 npm lockfile、一键安装、统一验证、四组跨平台 CI 配置 | 发布包、公共许可证 |
-| ReviewController / reducer | 39 项核心测试；严格类型检查 | 真实语义验真、产物事务交付 |
-| final_only / incremental_candidates | 两种协议可测试 | 实际模型对照收益 |
-| SourceReader / SnapshotProvider | 仅接口 | staged/worktree/commit 不可变快照 |
-| Evidence hash check | 完整性检查已测试 | 结论语义正确性 |
-| DecisionAdvisor / Noop / Rule | off/shadow/advisory 单测 | Jev 效果、无额外时延保证 |
-| MemoryJournal | 仅测试和 synthetic demo | 生产持久化 |
-| PiSessionJournal | Pi 0.84.1 实装；原生 JSONL 重开、当前分支、恢复身份与事件顺序测试 | 首次回复前可靠持久化、fsync、崩溃恢复 |
-| Pi session / Hook | 真实 SDK 创建、空工具、目标仓库指令/扩展隔离 smoke | 完整业务绑定、源码工具、模型审查 |
-| Tree-sitter Python | 真 grammar 测试；锁定 npm 包、commit、ABI 与 SHA-256；语法错误和 Unicode 测试 | 完整语言语义和调用目标解析 |
-| 导入/作用域 resolver | 未实现 | 可靠的跨文件调用绑定 |
-| SQLite 图存储 | schema 草案 | store/query/incremental adapter |
-| Jev / IDE / PR / MCP / ACP | 文档与契约边界 | 生产实现 |
+| 快照 | 提交、暂存区、已保存工作区；仓库外内容存储；版本身份；冻结竞争检查 | VS Code 的用户选择及产品验收 |
+| 文本取证 | 源码行号/hash、差异分页、字面搜索；明确截断/不支持文件 | 非文本内容的语义审查 |
+| 业务引擎 | final_only；候选结构/证据/覆盖核验；取消、工具和时间预算 | 缺陷语义正确性须人工判断 |
+| Pi | 单会话内置供应商及国内 BigModel GLM-5.3-Flash；该模型真实 CLI smoke 已通过；明确 API Key；精确工具白名单；不加载仓库指令/扩展 | 其他供应商未实测；OAuth 不支持 |
+| 原生日志 | 独占空文件经公开 SessionManager.open 初始化；首条回复前持久化；fsync 和写入故障检查 | 不宣称数据库级事务或 exactly-once |
+| 报告和恢复 | JSON/Markdown 原子替换；交付清单最后写入；历史校验；原快照新 run | 中断模型会话不续接；运行中硬退出可能留锁 |
+| CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
+| Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、SQLite v2、按需两工具、可终止工作线程 | 只索引 head；动态 receiver、全类型推断及增量更新不支持 |
+| VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
+| 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；逐例语义 mapping 与 native trace 派生归因 | r2 未执行全 20-case 新对照；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
 
-## M1 仍需满足
+资源上限：单文件 1 MiB，捕获最多 10,000 个路径、100 MiB 内容，最多 200 个变更路径；源码最多每次 200 行/32 KiB，差异按页读取，搜索最多 100 个结果。超限会拒绝、明确不可审查或返回截断；不能据此认定无缺陷。工作区符号链接路径拒绝读取；提交/index 的符号链接、子模块、二进制、超大文件不能计入文本审查覆盖。
 
-真实 review 命令仍未实现。下一步先实现不可变源码快照和只读工具，再接 Pi 业务 Controller、模型输出、取消与报告落盘。
-Pi 新会话在首条 assistant 消息前可能不落盘，不能将当前适配器当作可靠业务日志。也不能通过注入假 assistant 消息来伪造生产审查进度。
-业务 completed 目前仅表示领域状态闭合；产品必须在报告可靠写入后确认完整交付。
+持久化故障会使本次 run 无法确认交付。历史只把清单及产物 hash 一致的记录当作已交付；`running` 仅是最后写入状态，不代表进程仍活跃。`doctor` 检查锁拥有者，`unlock` 仅清理已退出进程的锁。临时文件可能在硬退出后遗留；不自动删除历史快照和报告。
+
+Graph contract 不含 Tree-sitter 类型。关系只包含 CONTAINS/IMPORTS/REFERENCES/CALLS；provenance 保存源码范围、site id、snapshot 和 resolver 版本。候选调用只保留 candidate target 与 REFERENCES，不生成已确认 CALLS。数据库就绪需要事务完成、外键/数量核验和内容摘要；缓存读取重新核验版本、SQLite 完整性和内容摘要。解析有缺口的完整索引可 ready，但查询状态为 parse_incomplete，不能把它解释为完整程序关系。
+
+构图限 200,000 facts、400,000 relations，工作线程内存上限 512 MiB，并受本次 review 的超时/取消约束。每页最多 100 项/32 KiB items，warnings 有界。一次查询一个工作线程，因此 warm request 包含线程启动和缓存校验；queryMs 单独记录。SQLite 派生数据损坏会保留 .discarded 文件供诊断，再重建；不做自动清理或复杂增量失效。
+
+Trace 分析仅作事后评测，不参与 Pi 决策，不改变 FindingCandidate。graph_assisted 要求 resolved incoming caller 在文本中尚未暴露，Graph 返回后另行读取源码，且 accepted evidence 包含该位置。图返回的精确 GLM tokens 不可得；字符/4 粗估单列。中断响应的全零 SDK usage 明确标为不完整，不能视作零费用。人工审核 receipt 绑定所选 corpus/SHA；r2 的 Agent 修订清单明确 humanReviewed=false，不自动升级人工状态。
+
+分支基线：v0.2 从 5422ba7（完整 feat/review-engine）开始。读取远端时 main=916ebf2，只合入快照；完整引擎已合入 feat/immutable-snapshots=9258306。main 与引擎当时分叉 1/3 提交；没有强推、改写 main 或覆盖用户的未提交文档。

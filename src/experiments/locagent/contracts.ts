@@ -1,0 +1,11 @@
+import type { GraphCoverage, Relation, RelationFact, SymbolFact } from '../../graph/contracts.ts';
+export interface RetrievalConfig {
+  searchEntityEnabled?: boolean; bm25Enabled?: boolean; traverseEnabled?: boolean;
+  fuzzyEnabled?: boolean; maxHops?: number; sourcePolicy?: 'adaptive'|'preview'|'fold';
+}
+export interface GraphData { snapshotId:string; symbols:SymbolFact[]; relations:RelationFact[]; sources:Record<string,string>; coverage:GraphCoverage; warnings:string[] }
+export interface SearchInput { searchTerms:string[]; topK:number; filePattern?:string }
+export interface TraverseInput { startEntities:string[]; direction:'upstream'|'downstream'|'both'; maxHops:number; entityTypeFilter:SymbolFact['kind'][]; relationTypeFilter:Relation[]; maxNodes:number; maxBytes?:number }
+export const LOCAGENT_CAPABILITY_PROMPT = 'Experimental LocAgent-style tools provide on-demand navigation of immutable HEAD. search_entity locates candidate entities via exact names and sparse retrieval. traverse_graph returns bounded dependency trees; upstream means incoming and downstream means outgoing. Relations and coverage may be incomplete. Search scores, previews and graph output are exploration only. Use read_source for immutable source evidence before submitting findings.';
+export const SEARCH_SCHEMA = {type:'object',additionalProperties:false,required:['searchTerms','topK'],properties:{searchTerms:{type:'array',minItems:1,maxItems:5,items:{type:'string',minLength:1,maxLength:256}},topK:{type:'integer',minimum:1,maximum:10},filePattern:{type:'string',minLength:1,maxLength:256}}};
+export const TRAVERSE_SCHEMA = {type:'object',additionalProperties:false,required:['startEntities','direction','maxHops','entityTypeFilter','relationTypeFilter','maxNodes'],properties:{startEntities:{type:'array',minItems:1,maxItems:5,items:{type:'string',minLength:1,maxLength:512}},direction:{type:'string',enum:['upstream','downstream','both']},maxHops:{type:'integer',minimum:1,maximum:20},entityTypeFilter:{type:'array',uniqueItems:true,items:{type:'string',enum:['module','class','function','method']}},relationTypeFilter:{type:'array',uniqueItems:true,items:{type:'string',enum:['CONTAINS','IMPORTS','REFERENCES','CALLS']}},maxNodes:{type:'integer',minimum:1,maximum:100},maxBytes:{type:'integer',minimum:2048,maximum:32768}}};

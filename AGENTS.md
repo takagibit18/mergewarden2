@@ -14,7 +14,7 @@ Read README.md, docs/DECISIONS.md, docs/IMPLEMENTATION_STATUS.md and the relevan
 - agent_end, zero findings, empty graph results and tool timeouts are not review completion.
 - Jev is optional, provider-neutral and OFF by default. Shadow must not affect behavior.
 - Hard permissions, publication, and completion are deterministic business responsibilities.
-- MemoryJournal is tests/demo only. Pi CustomEntry is the intended production journal port, but startup persistence and failure guarantees remain unimplemented gates.
+- MemoryJournal is tests/demo only. production uses durable Pi CustomEntry over an exclusively opened session file. Preserve startup fsync, poisoned-journal failure, and verified report-delivery gates.
 - Do not claim stub integrations, synthetic demos or unrun tests are product capabilities.
 
 ## Validation
@@ -30,3 +30,8 @@ Prefer one vertical slice. Do not introduce multi-agent orchestration, a hosted 
 self-evolving online skills, or a mandatory router as foundational cleanup.
 Remote repository creation or pushing requires explicit user authorization.
 Original architecture DOCX/Markdown are historical records; implementation status and validation are current.
+
+## 本地 working agent 汇报规则
+- 本地 working agent 做工作汇报时，禁止将报告类 Markdown 文件直接存放在本仓库内，包括仓库根目录、docs/、其他子目录和被 Git 忽略的目录。
+- 进度总结、接入报告、验收汇报、任务完成报告默认直接在对话中交付；确需保存为文件时，必须放在仓库之外，不得加入 Git 提交或 PR。
+- 不得通过更名为说明文档或加入 .gitignore 来规避上述规则。

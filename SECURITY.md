@@ -1,12 +1,13 @@
 # Security boundary
 
-The scaffold does not sandbox Pi or implement production source access.
-Do not run real untrusted repositories through the session starter before admission/source tools are implemented.
-Do not load target `.pi`, AGENTS.md, project plugins, package scripts or imports as trusted instructions.
-Never pass GitHub write credentials to a model-controlled command executor.
-Graph parsing is static; test execution requires separate resource/network isolation.
-State/logs may contain proprietary code. Select explicit retention and redaction rules.
-A local engine still sends selected inputs to any configured remote model provider.
+The local CLI is advisory-only. Its Pi session can use only frozen source, diff, literal-search and final-submission tools. It has no shell, source writes, repository extensions, package execution or publishing tools. This is an allowlisted application, not an OS sandbox for hostile native SDK code.
 
-Potential issues should initially be reported privately to the repository owner. No contact address
-or external security endpoint is invented here; configure one before a public release.
+Repository AGENTS.md, `.pi`, plugins, package scripts and Python imports are untrusted data. The runtime loads none of them as configuration. Git object reads disable hooks, fsmonitor, external attributes/config sources and lazy network fetching. The explicitly selected canonical checkout is trusted only for those read operations; no persistent global safe.directory setting is added by the engine.
+
+Snapshots, native session JSONL and reports live outside the checkout. Worktree reads reject symbolic links and check for concurrent changes; Git symbolic links/submodules and non-text files are marked unsupported. Full source snapshots and logs may contain proprietary material. A configured provider receives the diff and source content requested by the model. The engine performs no independent secret scanning or redaction of reviewed source. Select the repository, provider and local state directory accordingly.
+
+API keys come from an explicitly named environment variable for the CLI. They are not command arguments, settings files, model prompts or run-manifest fields. OAuth and automatic reuse of Pi authentication are disabled. Built-in providers requiring additional account/region credentials remain outside this MVP API-key interface.
+
+No report is confirmed until its JSON, Markdown and hash-bearing delivery manifest are saved. Corrupted logs stop the session; incomplete or tampered artifacts do not become successful history. Keep state on a local filesystem controlled by the current user; this MVP does not defend against another process with permission to rewrite its state directory or guarantee filesystem transactions under power loss.
+
+Potential issues should initially be reported privately to the repository owner. No external contact endpoint is invented here.
