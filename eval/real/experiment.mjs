@@ -11,6 +11,7 @@ import {sha256} from '../../src/infrastructure/files.ts';
 export const armPrompts={T0:BASE_SYSTEM_PROMPT,G0:BASE_SYSTEM_PROMPT+'\n'+GRAPH_CAPABILITY_PROMPT,G1:BASE_SYSTEM_PROMPT+'\n'+LOCAGENT_CAPABILITY_PROMPT};
 export const effectivePrompt=(arm,output)=>armPrompts[arm]+'\nCurrent working directory: '+join(resolve(output),'state').replaceAll('\\','/');
 export function validateRuntime(configuration,experiment,arm){
+ if((configuration.providerReasoningEffort??'provider-default')!==(experiment.providerReasoningEffort??'provider-default'))throw Error('Effective provider reasoning configuration drift');
  if(configuration.systemPrompt!==effectivePrompt(arm,experiment.outputDirectory)||configuration.modelMaxTokens!==experiment.maxTokens||configuration.thinkingLevel!==experiment.thinkingLevel||configuration.modelApi!==experiment.modelApi||configuration.modelBaseUrl!==experiment.modelBaseUrl)throw Error('Effective runtime configuration drift');
 }
 export function quantiles(values){const s=values.filter(Number.isFinite).sort((a,b)=>a-b),q=p=>s.length?s[Math.max(0,Math.ceil(s.length*p)-1)]:null;return {count:s.length,p50:q(.5),p75:q(.75),p90:q(.9),max:s.at(-1)??null};}
@@ -27,9 +28,10 @@ export function validatePilot(result,batch,lock){
  }
  for(const id of ids)for(const arm of ['T0','G0','G1'])if(!result.runs.some(r=>r.caseId===id&&r.arm===arm&&r.delivered&&r.status==='completed'))throw Error('Operational pilot incomplete for a reserve case/arm');
 }
-export async function createExperimentLock({corpusDirectory,output,kind,timeoutMs,maxTools,pilotDirectory,runOutput}) {
+export async function createExperimentLock({corpusDirectory,output,kind,timeoutMs,maxTools,maxTokens=8192,providerReasoningEffort='provider-default',pilotDirectory,runOutput}) {
  const {lock,data}=await verifyBundle(corpusDirectory);
  if(!runOutput||!['reserve','formal'].includes(kind)||!Number.isInteger(timeoutMs)||timeoutMs<1000||timeoutMs>3600000||!Number.isInteger(maxTools)||maxTools<1||maxTools>1000)throw Error('Invalid experiment limits/output');
+ if(!Number.isInteger(maxTokens)||maxTokens<8192||maxTokens>32768||!['provider-default','low','high','max'].includes(providerReasoningEffort))throw Error('Invalid evaluation model budget');
  const receipts=data['audit/receipts.jsonl'],formal=receipts.filter(c=>lock.formalIds.includes(c.id)),coverage=quantiles(formal.map(c=>c.profile.minimumCoverageToolCalls));
  if(maxTools<Math.max(coverage.max+20,coverage.p90*2))throw Error('No investigation headroom above complete diff coverage');
  let pilot=null;
@@ -37,6 +39,7 @@ export async function createExperimentLock({corpusDirectory,output,kind,timeoutM
   if(!pilotDirectory)throw Error('Reserve model pilot required');
   const bytes=await readFile(join(pilotDirectory,'latest.json')),result=JSON.parse(bytes),batch=JSON.parse(await readFile(join(pilotDirectory,'batch.json'),'utf8'));
   await verifyExperiment(batch.identity,lock);validatePilot(result,batch,lock);
+  if(maxTokens!==batch.identity.maxTokens||providerReasoningEffort!==(batch.identity.providerReasoningEffort??'provider-default'))throw Error('Formal model budget must match the reserve pilot');
   for(const r of result.runs){
    if(!/^[A-Za-z0-9_-]+$/.test(r.runId))throw Error('Invalid native run ID');
    const directory=join(pilotDirectory,'state','runs',r.runId),manifest=JSON.parse(await readFile(join(directory,'run.json'),'utf8'));
@@ -46,7 +49,7 @@ export async function createExperimentLock({corpusDirectory,output,kind,timeoutM
   if(timeoutMs<pilot.statistics.latencyMs.p90||maxTools<=pilot.statistics.toolCalls.p90)throw Error('Formal budget below observed pilot needs');
  }
  const root=fileURLToPath(new URL('../../',import.meta.url));
- const experiment={schemaVersion:1,kind,provider:'bigmodel',model:'glm-5.3-flash',modelApi:'openai-completions',modelBaseUrl:'https://open.bigmodel.cn/api/paas/v4/',piVersion:'0.84.1',outputDirectory:resolve(runOutput),systemPromptSha256:sha256(BASE_SYSTEM_PROMPT),timeoutMs,maxTools,maxTokens:8192,thinkingLevel:'medium',corpusId:lock.corpusId,corpusSha256:lock.corpusSha256,runtimeCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8',windowsHide:true}).trim(),implementationFingerprint:await implementationFingerprint(),arms:Object.fromEntries(Object.entries(armPrompts).map(([k,p])=>[k,{systemPromptSha256:sha256(p),effectiveSystemPromptSha256:sha256(effectivePrompt(k,runOutput))}])),coverage,pilot,readiness:kind==='formal'?'READY':'RESERVE_PILOT_ONLY'};
+ const experiment={schemaVersion:1,kind,provider:'bigmodel',model:'glm-5.3-flash',modelApi:'openai-completions',modelBaseUrl:'https://open.bigmodel.cn/api/paas/v4/',piVersion:'0.84.1',outputDirectory:resolve(runOutput),systemPromptSha256:sha256(BASE_SYSTEM_PROMPT),timeoutMs,maxTools,maxTokens,providerReasoningEffort,thinkingLevel:'medium',corpusId:lock.corpusId,corpusSha256:lock.corpusSha256,runtimeCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8',windowsHide:true}).trim(),implementationFingerprint:await implementationFingerprint(),arms:Object.fromEntries(Object.entries(armPrompts).map(([k,p])=>[k,{systemPromptSha256:sha256(p),effectiveSystemPromptSha256:sha256(effectivePrompt(k,runOutput))}])),coverage,pilot,readiness:kind==='formal'?'READY':'RESERVE_PILOT_ONLY'};
  experiment.experimentSha256=digest(experiment);await writeFile(output,JSON.stringify(experiment,null,2)+'\n',{flag:'wx'});return experiment;
 }
 export async function verifyExperiment(experiment,corpusLock){const copy={...experiment};delete copy.experimentSha256;const root=fileURLToPath(new URL('../../',import.meta.url));if(digest(copy)!==experiment.experimentSha256||experiment.corpusSha256!==corpusLock.corpusSha256||experiment.systemPromptSha256!==sha256(BASE_SYSTEM_PROMPT)||experiment.implementationFingerprint!==await implementationFingerprint()||experiment.runtimeCommit!==execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8',windowsHide:true}).trim())throw Error('Frozen experiment drift');

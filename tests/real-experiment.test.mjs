@@ -9,6 +9,7 @@ test('effective prompt guard checks the complete Pi cwd suffix and model configu
  validateRuntime(runtime('T0'),identity,'T0');
  for(const change of [{systemPrompt:runtime('T0').systemPrompt+'\nHidden gold'}, {modelMaxTokens:4096},{thinkingLevel:'off'},{modelBaseUrl:'https://other.invalid'}])assert.throws(()=>validateRuntime({...runtime('T0'),...change},identity,'T0'),/drift/);
  assert.throws(()=>validateRuntime(runtime('G0'),identity,'T0'),/drift/);
+ assert.throws(()=>validateRuntime({...runtime('T0'),providerReasoningEffort:'high'},identity,'T0'),/drift/);
 });
 test('reserve statistics preserve timeout/partial outcomes and measure no quality',()=>{
  const s=pilotStatistics([{elapsedMs:10,status:'completed',delivered:true,manifest:{metrics:{toolCalls:3},usage:{input:10,output:2}}},{elapsedMs:300,status:'partial',delivered:true,report:{summary:'Review time budget exhausted'}}]);assert.equal(s.completionRate,.5);assert.equal(s.timeouts,1);assert.equal(s.timeoutRate,.5);assert.equal(s.qualityMeasured,false);

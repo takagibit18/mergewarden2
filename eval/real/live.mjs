@@ -25,8 +25,8 @@ const controller=new AbortController();process.once('SIGINT',()=>controller.abor
 const model={provider:experiment.provider,modelId:experiment.model},adapter=new RealCorpusAdapter({cache:resolve(get('--cache')),stateDir:state,configuration:{...model,policy:'final_only',promptVersion:1}});
 // All selected task snapshots must materialize before the first model call. No fetch.
 const prepared=new Map();for(const job of plan)if(!prepared.has(job.task.case_id))prepared.set(job.task.case_id,await adapter.materialize(job.task,{offline:true,signal:controller.signal}));
-const {createPiRuntimeFactory}=await import('../../integrations/pi/src/runtime.ts');
-const factory=createPiRuntimeFactory(key);
+const {createEvaluationRuntimeFactory}=await import('./runtime.mjs');
+const factory=createEvaluationRuntimeFactory(key,experiment);
 const runs=await executeBatch({output,plan,identity:experiment,resume:argv.includes('--resume'),signal:controller.signal,execute:async job=>{
  await verifyExperiment(experiment,lock);
  const {repositoryPath,store}=prepared.get(job.task.case_id);

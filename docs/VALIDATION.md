@@ -207,3 +207,5 @@ G1 的 3 次 SearchEntity 均命中，entity/content BM25 各参与 4 个查询�
 原始、mapping、integrity、v1/v2 分析在仓库外 ../output/locagent-replication/challenge-c9584d0/；机器可读 [fidelity](../eval/locagent/locagent-replication-fidelity.json) 与 [冻结协议](experiments/LOCAGENT_REPLICATION.md) 记录适配。内容分块/预览、JS Snowball、fuzzy 顺序、索引生命周期等不等同原版；这是机制实验，不是论文指标复现。未达到 Stage D 门槛，未执行 20×3，不据此断言 Graph 在真实大仓库无价值。
 
 RealGolden 的确定性验证入口仍为 `npm run verify`。新增检查覆盖 raw Git 父链、缺失对象、真实 SnapshotStore 分页、origin/快照身份、24/16 配额、冗余 approved pool、公开任务隔离、完整 Pi prompt、批跑失败保留/续跑和开放标签 precision bounds。它们不执行目标 Python，也不调用模型。真实 reserve pilot 的 native session、report、锁和成本统计由批跑输出目录保留；正式质量必须另行裁定，不能由静态构图或脚本 provider 成功推断。
+
+RealGolden 模型预算测试通过真实 Pi 请求构造器和离线 HTTP 截获，验证三组实际发送相同的 `max_tokens` / `reasoning_effort`，并核验产品默认 catalog 不变。Pi 客户端 thinking level 与服务端推理档位分别记录；不能仅凭 `medium` 元数据推断服务端收到该设置。预算变更须使用新 reserve 实验锁，正式实验必须沿用已通过 pilot 的模型预算。

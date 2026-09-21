@@ -42,6 +42,8 @@ npm run eval:real-live -- --live --corpus eval/real/corpora/mergewarden-real-pyt
 
 300 秒/100 tools 是 reserve 的初始运行配置示例，正式预算必须根据本机 pilot 冻结。锁固定 GLM-5.3-Flash、Pi、完整 prompt（含实际 cwd）、实现摘要和 Git commit；运行中不可改变。`--subset ID,ID`、`--arms T0,G0,G1`、`--repeat 2` 可缩小任务或重复运行；`--resume` 要求完全相同 plan/config，仅补跑未完整交付的 job，并保留每次失败尝试及 native session/report。正常中断可续跑；无法确认拥有者的锁不自动清理。
 
+`lock` 另支持 `--max-tokens 16384 --provider-reasoning-effort high`：通过 Pi 公共 provider 注册接口，仅在评测实例中设置预算，复用同一运行循环，产品 catalog 不变。默认仍为 8192 / `provider-default`。Pi 的 `medium` 是客户端档位；旧 catalog 不发送 `reasoning_effort`，不能将它冒充服务端 medium。显式档位支持 low/high/max，锁同时记录客户端和服务端设置；请求级离线测试验证实际 HTTP payload。调整必须新建 reserve 锁及输出目录，并让三组全部使用同一配置；正式锁必须匹配所依据 pilot 的模型预算。截断、超时和初次网络失败不能由重试成功覆盖。
+
 正式 `lock --kind formal --pilot ../real-work/reserve-run` 必须读取至少 6 个永久预留 task 的三组完成记录，校验原生交付及同一 snapshot，并要求 coverage 和实测 pilot 有调查余量。指定新 `--run-output` 和相同模型配置；只有返回 `READY` 的正式锁可用于 formal tasks。未完成 pilot 时不可启动正式付费实验，reserve 结果不进入正式质量报告。
 
 `score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用 hash-bound 人工或 Agent 裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。

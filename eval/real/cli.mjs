@@ -35,7 +35,7 @@ if(command==='prepare'||command==='profile'){
  const {lock}=await verifyBundle(resolve(get('corpus')));console.log(JSON.stringify({corpusSha256:lock.corpusSha256,status:lock.status}));
 }else if(command==='lock'){
  const output=await outputPath();
- console.log(JSON.stringify(await createExperimentLock({corpusDirectory:resolve(get('corpus')),output,kind:get('kind'),timeoutMs:Number(get('timeout-ms')),maxTools:Number(get('max-tools')),pilotDirectory:values['--pilot']&&resolve(values['--pilot']),runOutput:resolve(get('run-output'))})));
+ console.log(JSON.stringify(await createExperimentLock({corpusDirectory:resolve(get('corpus')),output,kind:get('kind'),timeoutMs:Number(get('timeout-ms')),maxTools:Number(get('max-tools')),maxTokens:Number(values['--max-tokens']??8192),providerReasoningEffort:values['--provider-reasoning-effort']??'provider-default',pilotDirectory:values['--pilot']&&resolve(values['--pilot']),runOutput:resolve(get('run-output'))})));
 }else if(command==='score'){
  const runs=(await json('runs')).runs,gold=await rows('gold'),adjudications=await rows('adjudications');
  const output=await outputPath();
