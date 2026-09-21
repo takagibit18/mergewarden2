@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createModelRuntime, createPiRuntime } from '../src/runtime.ts';
 import { ReviewEngine } from '../../../src/engine/review.ts';
 import { repositoryFixture } from '../../../tests/repository-fixture.mjs';
-import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT } from '../../../src/engine/prompt.ts';
+import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT, NAVIGATION_POLICY_PROMPT } from '../../../src/engine/prompt.ts';
 import { sha256 } from '../../../src/infrastructure/files.ts';
 const { createAssistantMessageEventStream }=await import(new URL('../node_modules/@earendil-works/pi-ai/dist/index.js',import.meta.resolve('@earendil-works/pi-coding-agent')).href);
 async function provider(script) {
@@ -19,8 +19,10 @@ const result=c=>JSON.parse(c.messages.filter(m=>m.role==='toolResult').at(-1).co
 test('real Pi loop navigates graph, verifies frozen source and submits final source evidence',async t=>{
  const f=await repositoryFixture(t,{'app.py':'def ratio(total,count):\n return total / max(count,1)\n','client.py':'from app import ratio\ndef run(): return ratio(10,0)\n'});const head=await f.change();let graphPage;let source;
  const runtime=await provider((turn,c)=>{
-  assert.equal(c.systemPrompt.split('\nCurrent working directory:')[0],BASE_SYSTEM_PROMPT+'\n'+GRAPH_CAPABILITY_PROMPT);
+  assert.equal(c.systemPrompt.split('\nCurrent working directory:')[0],BASE_SYSTEM_PROMPT+'\n'+NAVIGATION_POLICY_PROMPT+'\n'+GRAPH_CAPABILITY_PROMPT);
   assert.deepEqual(c.tools.map(t=>t.name).sort(),['graph_lookup','graph_neighbors','read_diff','read_source','search_text','submit_review']);
+  const descriptions=Object.fromEntries(c.tools.map(t=>[t.name,t.description]));
+  for(const name of ['graph_lookup','graph_neighbors']){assert.match(descriptions[name],/callers|references/i);assert.match(descriptions[name],/untouched|relevant code/i);assert.match(descriptions[name],/read_source/);}
   if(turn===1)return call('graph_lookup',{query:'ratio',limit:10});
   if(turn===2){graphPage=result(c);assert.equal(graphPage.status,'ok');return call('graph_neighbors',{symbolId:graphPage.items[0].id,relation:'CALLS',direction:'incoming',limit:10});}
   if(turn===3){assert.equal(result(c).items[0].sourcePath,'client.py');return call('read_diff',{path:'app.py'});}
@@ -35,6 +37,6 @@ test('real Pi loop navigates graph, verifies frozen source and submits final sou
 });
 test('text-only SDK path uses frozen prompt and never opens a graph index',async t=>{
  const f=await repositoryFixture(t);const head=await f.change();await mkdir(join(f.state,'graphs'));
- const runtime=await provider((turn,c)=>{assert.equal(c.systemPrompt.split('\nCurrent working directory:')[0],BASE_SYSTEM_PROMPT);assert.equal(c.tools.length,4);if(turn===1)return call('read_diff',{path:'app.py'});if(turn===2)return call('submit_review',{summary:'offline',reviewedPaths:['app.py'],findings:[]});return [{type:'text',text:'Done'}];});
+ const runtime=await provider((turn,c)=>{const prompt=c.systemPrompt.split('\nCurrent working directory:')[0];assert.equal(prompt,BASE_SYSTEM_PROMPT);for(const name of ['graph_lookup','graph_neighbors','search_entity','traverse_graph'])assert.ok(!prompt.includes(name));assert.deepEqual(c.tools.map(t=>t.name).sort(),['read_diff','read_source','search_text','submit_review']);if(turn===1)return call('read_diff',{path:'app.py'});if(turn===2)return call('submit_review',{summary:'offline',reviewedPaths:['app.py'],findings:[]});return [{type:'text',text:'Done'}];});
  const r=await new ReviewEngine(o=>createPiRuntime(o,runtime)).run({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model:{provider:'fixture',modelId:'offline'},evaluation:{tools:'text-only'}});assert.equal(r.report.status,'completed');assert.deepEqual(await readdir(join(f.state,'graphs')),[]);
 });

@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {createModelRuntime,createPiRuntime} from '../src/runtime.ts';
 import {ReviewEngine} from '../../../src/engine/review.ts';
 import {repositoryFixture} from '../../../tests/repository-fixture.mjs';
-import {BASE_SYSTEM_PROMPT} from '../../../src/engine/prompt.ts';
+import {BASE_SYSTEM_PROMPT,NAVIGATION_POLICY_PROMPT} from '../../../src/engine/prompt.ts';
 import {LOCAGENT_CAPABILITY_PROMPT} from '../../../src/experiments/locagent/contracts.ts';
 import {analyzeRetrieval} from '../../../src/experiments/locagent/traces.ts';
 import {sha256} from '../../../src/infrastructure/files.ts';
@@ -19,8 +19,10 @@ test('Stage B real Pi: Search → Traverse → separate source → durable accep
  const f=await repositoryFixture(t,{'app.py':'def ratio(total,count):\n return total / max(count,1)\n','client.py':'from app import ratio\ndef run(): return ratio(10,0)\n'}),head=await f.change();let page,caller,source;
  const finding=ev=>({id:'zero',title:'Zero division',claim:'Zero count raises in caller',trigger:'client.run()',impact:'request fails',severity:'high',evidence:ev});
  const runtime=await provider((turn,c)=>{
-  assert.equal(c.systemPrompt.split('\nCurrent working directory:')[0],BASE_SYSTEM_PROMPT+'\n'+LOCAGENT_CAPABILITY_PROMPT);
+  const prompt=c.systemPrompt.split('\nCurrent working directory:')[0];assert.equal(prompt,BASE_SYSTEM_PROMPT+'\n'+NAVIGATION_POLICY_PROMPT+'\n'+LOCAGENT_CAPABILITY_PROMPT);assert.ok(!prompt.includes('graph_lookup'));assert.ok(!prompt.includes('graph_neighbors'));
   assert.deepEqual(c.tools.map(t=>t.name).sort(),['read_diff','read_source','search_entity','search_text','submit_review','traverse_graph']);
+  const descriptions=Object.fromEntries(c.tools.map(t=>[t.name,t.description]));
+  for(const name of ['search_entity','traverse_graph']){assert.match(descriptions[name],/untouched|relevant code/i);assert.match(descriptions[name],/read_source/);}
   if(turn===1)return call('read_diff',{path:'app.py'});
   if(turn===2)return call('search_entity',{searchTerms:['app.ratio'],topK:3});
   if(turn===3){page=result(c);assert.equal(page.items[0].explorationOnly,undefined);assert.equal(page.explorationOnly,true);return call('traverse_graph',{startEntities:[page.items[0].entityId],direction:'upstream',maxHops:2,entityTypeFilter:[],relationTypeFilter:['CALLS'],maxNodes:10});}

@@ -205,3 +205,17 @@ G1 的 3 次 SearchEntity 均命中，entity/content BM25 各参与 4 个查询�
 首次 ff8c8e1 尝试因遗漏参考 invalid-root BM25 hints 而中断，保留 6 份报告和 1 次未完成尝试，未与正式 24 次混算。正式运行后单独修复大量 warnings 的小输出上限反例，并收紧 hint 曝光的 trace 归因；没有替换模型运行。v2 派生分析不改 raw/native，24 次归因结果全部不变。初次 155 项基线验证及后续本地/CI 日志均保留在仓库外；166 项最终确定性测试覆盖这些边界。
 
 原始、mapping、integrity、v1/v2 分析在仓库外 ../output/locagent-replication/challenge-c9584d0/；机器可读 [fidelity](../eval/locagent/locagent-replication-fidelity.json) 与 [冻结协议](experiments/LOCAGENT_REPLICATION.md) 记录适配。内容分块/预览、JS Snowball、fuzzy 顺序、索引生命周期等不等同原版；这是机制实验，不是论文指标复现。未达到 Stage D 门槛，未执行 20×3，不据此断言 Graph 在真实大仓库无价值。
+
+RealGolden 的确定性验证入口仍为 `npm run verify`。新增检查覆盖 raw Git 父链、缺失对象、真实 SnapshotStore 分页、origin/快照身份、24/16 配额、冗余 approved pool、公开任务隔离、完整 Pi prompt、批跑失败保留/续跑和开放标签 precision bounds。它们不执行目标 Python，也不调用模型。真实 reserve pilot 的 native session、report、锁和成本统计由批跑输出目录保留；正式质量必须另行裁定，不能由静态构图或脚本 provider 成功推断。
+
+RealGolden 模型预算测试通过真实 Pi 请求构造器和离线 HTTP 截获，验证三组实际发送相同的 `max_tokens` / `reasoning_effort`，并核验产品默认 catalog 不变。Pi 客户端 thinking level 与服务端推理档位分别记录；不能仅凭 `medium` 元数据推断服务端收到该设置。预算变更须使用新 reserve 实验锁，正式实验必须沿用已通过 pilot 的模型预算。
+
+## Graph harness / tool-selection fairness 修正 · 2026-09-21
+
+修正前，BASE 使用 `immutable-source tools` 措辞；G0 capability 只笼统描述 Graph，没有写明 `graph_lookup` → `graph_neighbors` 的组合；G1 虽写明 upstream/downstream，但两个 Graph arm 没有共享的结构导航选择政策。同时，任一 Graph error/not_indexed 都会参与 business completion 判定，导致调用可选工具的 G0/G1 承担 T0 不存在的降级风险。旧 reserve v4 的 18 次真实运行中 G0/G1 均为 0 Graph calls；这是旧 harness 结果，不能用来冻结新实现。
+
+修正后，BASE 改为中性 `immutable repository tools`。G0/G1 共享同一 `NAVIGATION_POLICY_PROMPT`：只在活动工具集提供结构能力时，说明 untouched-context trigger、caller/reference/consumer/dependency 发现、anti-confirmation 和 text/source fallback。G0 capability 明确 `graph_lookup` 先精确解析 symbol，再用 `graph_neighbors` 做一跳关系；G1 capability 只保留 `search_entity` / `traverse_graph` 的检索和方向语义。所有描述均保留 `read_source` 证据边界，未强制调用 Graph。
+
+completion 现只依赖最终提交、完整差异覆盖和无 model/timeout/tool-budget 错误等既有业务门槛。Graph/retrieval 失败保留 tool error/warning、报告限制说明与 `metrics.navigation.{attempted,degraded,errors}`；成功 text/source fallback 的 finding 和 zero-finding review 可 completed，而无 submit 或 timeout 仍是 partial。正式批跑使用 `first_attempt`，reserve 仍可 operational retry。盲审包确定性排除 arm、run key、Graph metrics 和 trace，私有映射绑定 prediction/gold hash。
+
+修改前完整 `npm run verify` 通过：核心 135、Pi 18、Tree-sitter 38、RealGolden 构造 20，另有全部类型检查、demo 与 status。修改后完整验证同样通过：核心 142、Pi 18、Tree-sitter 38、RealGolden 构造 20，0 failed/0 skipped，三组 TypeScript 检查、demo 和 status 全部成功。新回归覆盖 prompt 组合、真实 Pi active tools/工具描述、Graph 失败后有 finding/无 finding fallback、无 submit、timeout、T0 不变、Graph 不能成为 evidence、formal first-attempt 及盲审隔离。真实 reserve/formal 冻结产物保留在 checkout 外，不改写旧锁或历史结果。
