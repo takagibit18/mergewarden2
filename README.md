@@ -15,7 +15,7 @@ npm run cli -- models
 
 安装使用三个锁定依赖文件且禁用安装脚本。测试不需要 API Key，不访问真实模型。`models` 读取固定 Pi 版本内置目录及应用注册的智谱 Flash 配置；目录存在表示接入能力，不表示该供应商已实测。
 
-配置和首次验收见 **[真实模型验收指南](docs/LIVE_ACCEPTANCE.md)**；已选 GLM-5.3-Flash 可直接按 **[智谱配置](docs/BIGMODEL.md)** 操作。引擎只从命令行明确指定的环境变量读取密钥，不自动采用仓库配置、`.pi`、OAuth 或现有 Pi 登录。
+配置和首次验收见 **[真实模型验收指南](docs/LIVE_ACCEPTANCE.md)**。引擎只从命令行明确指定的环境变量读取密钥，不自动采用仓库配置、`.pi`、OAuth 或现有 Pi 登录。
 
 ```sh
 npm run cli -- review --repo /path/to/repository --base BASE_SHA --head HEAD_SHA --provider PROVIDER --model MODEL_ID --api-key-env MERGEWARDEN_API_KEY
@@ -47,7 +47,7 @@ CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code
 
 `eval:traces` 从实际工具轨迹派生 finding 的 `discoveryPath`，保留 Graph → 新 caller → 源码读取 → accepted evidence 链，不采信模型自述，也不更改 finding 证据协议。`eval:human-review` 生成不含模型结果的逐例审核页；只有实际人工作答并通过 corpus/SHA 校验，才能生成审核后的 `annotationProvenance`。原始 case 与答案不会被这两个工具改写。
 
-完整 20-case GLM A/B 已实跑一次：两组各命中 11/12 个冻结缺陷，完整交付 Text 18/20、Graph 17/20。50 次 Graph 调用未形成严格的 graph_assisted finding；本次未观察到增量发现价值。5 次超时请求存在 usage 缺口，已报告 tokens 不等于完整计费记录。案例仍待用户独立人工复核；[完整验证与 trace 指标](docs/VALIDATION.md)。
+原版 r1 的完整 20-case GLM A/B 已实跑一次：两组按当时标签各命中 11/12 个缺陷，完整交付 Text 18/20、Graph 17/20。50 次 Graph 调用未形成严格的 graph_assisted finding。随后 Agent 源码复核发现一个 clean 反例、接口范围和 severity 问题，已授权修订为独立冻结的 r2；旧语料及分数保留，不作为 r2 成绩。5 次超时请求存在 usage 缺口，tokens 不等于完整计费记录。[版本与修订边界](eval/README.md) · [历史验证与 trace 指标](docs/VALIDATION.md)。
 
 ## 验证与后续
 
@@ -56,7 +56,7 @@ CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code
 - [开发约束](AGENTS.md) · [安全边界](SECURITY.md)。仓库保持私有，公共许可证尚未选择。
 - [原架构正文](docs/ARCHITECTURE.md) 和 [DOCX](docs/MergeWarden2_Top_Level_Design.docx) 是输入骨架的历史材料；当前实现以状态表为准。
 
-VSIX、WSL 产品验收、独立人工复核的真实项目黄金集及 3 对公开项目提交评测尚未交付。当前 20 例是调用前冻结的受控样例，理由由本次实现预先编写，不冒充独立人工标注。没有 Marketplace 发布、自动修复、自动合并、PR 评论或 Jev 调用。
+VSIX、WSL 产品验收、独立人工复核的真实项目黄金集及 3 对公开项目提交评测尚未交付。当前 r2 在其模型调用前冻结，但作者已见过 r1 结果，不能称作独立 holdout 或人工标注。没有 Marketplace 发布、自动修复、自动合并、PR 评论或 Jev 调用。
 
 
 ## LocAgent retrieval 内部实验

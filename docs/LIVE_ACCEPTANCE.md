@@ -2,7 +2,7 @@
 
 当前状态：**2026-09-20 已完成 BigModel GLM-5.3-Flash 的真实 CLI smoke**：使用 v0.2 冻结案例验证审查、图工具、报告重开、证据和同快照重跑，结果见 [验证记录](VALIDATION.md)。本页下方的独立 v0.1 缺陷/修复 fixture 尚未真实运行，不能把其他 smoke 当作该用例的验收记录。离线替身不代表模型检出能力；未打版本标签。
 
-已选择国内智谱 GLM-5.3-Flash：使用 `--provider bigmodel --model glm-5.3-flash`，完整命令见 [智谱配置](BIGMODEL.md)。
+已选择国内智谱 GLM-5.3-Flash：使用 `--provider bigmodel --model glm-5.3-flash`，按下文设置 API Key 并运行验收。
 
 ## 1. 选择并配置
 

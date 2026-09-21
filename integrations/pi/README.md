@@ -29,4 +29,4 @@ npm test
 
 ## 国内智谱 Flash
 
-应用通过公开 registerProvider 增加 `bigmodel/glm-5.3-flash`，固定使用用户确认的 `https://open.bigmodel.cn/api/paas/v4/`。仍由 Pi 执行模型循环与 HTTP 编解码，不读取仓库 models.json。见 [配置与离线验证边界](../../docs/BIGMODEL.md)。
+应用通过公开 registerProvider 增加 `bigmodel/glm-5.3-flash`，固定使用用户确认的 `https://open.bigmodel.cn/api/paas/v4/`。仍由 Pi 执行模型循环与 HTTP 编解码，不读取仓库 models.json。配置步骤见 [真实模型验收指南](../../docs/LIVE_ACCEPTANCE.md)。

@@ -1,5 +1,15 @@
 # 实测记录 · 2026-09-20
 
+## Golden r2 修订验证
+
+用户授权 Agent 复核后修订为 `controlled-python-v02-20-r2`。本次先运行完整基线验证（152 passed），修改后 `npm run verify` 为 **101 core + 16 Pi + 38 grammar = 155 passed，0 failed，0 skipped**，三组类型检查、demo/status 通过。新增检查覆盖旧语料字节保留/版本混用拒绝、severity 与源码范围一致性，以及全部 revised base/head 的真实 grammar 解析。20 例均重新构建并核对固定 Git SHA，经真实 SnapshotStore 读取。没有执行被审 Python。
+
+r2 离线 `--all` 已完成 **20 Text + 20 Graph，40/40 完整交付**，20 对 snapshot/有效配置一致，运行期间实现摘要未变。使用真实 Pi SDK 与 scripted-offline provider，空预测及 tokens 为合成，不能作为模型质量证据。日志与原始结果在仓库外 `../output/mergewarden-v02/golden-r2-verify.log`、`../output/mergewarden-v02/golden-r2-offline-all20/`。离线实验完成后仅校正一条 clean-none 的修订说明，不改变冻结 cases/hash 或可执行代码。本次新增改动的远端 CI 尚未执行。
+
+旧 r1 按原字节保存在 `eval/corpora/controlled-python-v02-20/`，hash 仍为 `ef748a3c5916190857e5cb8e4753b23274f7206833ada681763dd328b2b44939`；r2 hash 为 `07491d7803a4a25ded06e58d4acfae052e6ec2bd7575cff9867c9adf0c9f62d9`。旧 raw/mapping/metrics 不改写。执行、评分、trace 匹配与审核工具支持显式 `--corpus`，错配版本会拒绝。
+
+修订纠正 clean-guard 的正小数反例，明确三个 clean 的公开 API 边界，增强三个过易负例，将重复多跳单位转换替换为重试次数契约；10 项 defect 重评 medium，2 项 high 保留限定理由。[语料修订清单](../eval/corpus-revision.json) 逐例保存 lineage、SHA 和 Agent provenance。结论来自 Agent 静态推导，未冒充独立人工或 Python 执行验证。作者已见过 r1 结果，r2 不是独立 holdout；**r2 尚未跑真实模型 A/B，下文所有历史质量数据都属于 r1，不能转用为 r2 成绩。**
+
 ## v0.2 本地验收
 
 修改前在完整 ReviewEngine 提交 5422ba7 跑过全部验证：**90 passed，0 failed，0 skipped**。随后开发分支安全快进到同树的 v0.1 合并提交 9258306；未改写 main。初始 6 处用户文档改动已另存仓库外补丁并保留。
@@ -14,7 +24,7 @@
 
 测试覆盖活动 native JSONL 分支、损坏/孤立结果、实际 tool result 而非模型自述、同 snapshot 的 accepted source evidence、incoming caller 新颖性、既有文本线索、同批次预发读取、candidate/unresolved、失败查询、错误 hash 与范围、语义 mapping 后的两组对照，以及缓存/中断 usage。Graph 返回量保留精确 bytes/字符数；逐工具 GLM tokens 不可得，单列字符/4 粗估，不冒充真实账单用量。`incompleteUsage` 明确标记中断或缺失响应用量；aborted 响应返回零 usage 不能证明零消耗。
 
-人工审核工具校验 corpus hash、20 个 case 与 base/head SHA、五项判断和本人声明。测试中的签署人是明确标记的 synthetic fixture，不是真实审核；当前由用户负责逐例复核，实际意见返回前不升级 provenance。生成的 receipt 与原 corpus 绑定，允许部分复核和争议状态，不改冻结答案。预测到 golden 的 Codex 语义匹配与人工标注审查是不同记录。
+人工审核工具校验 corpus hash、20 个 case 与 base/head SHA、五项判断和本人声明。测试中的签署人是明确标记的 synthetic fixture，不是真实审核；后续用户改为委托 Agent 复核与修订，记录见 r2 小节，未升级人工 provenance。生成的 receipt 与所选 corpus 绑定，允许部分复核和争议状态，不改冻结答案。预测到 golden 的 Codex 语义匹配与人工标注审查是不同记录。
 
 ### 真实 Git Snapshot 图 smoke（受控源码，真实组件）
 
@@ -120,7 +130,7 @@ SDK 已报告总 tokens 的 Graph 增幅为 49.3%，**不能当作费用增幅**
 
 19 次实际使用 Graph 的审查合计 33 eligible / 33 indexed files、0 parse-incomplete、14 resolved / 0 candidate / 8 unresolved calls；均在逐 case 结果中保存。不调用图时记录的零不表示无依赖。16 次 cold build 为 96.541–157.832 ms（均值 117.119）；cold request 均值 205.656 ms。34 次 warm request 为 82.642–117.695 ms（均值 99.755），包含线程启动和完整性校验；store query 合计 42.938 ms。三个既有 snapshot cache 实际复用，其余按需构建。
 
-单次、固定组顺序和供应商缓存均限制因果解释；同一主机上也运行过后处理开发和本地验证，不是隔离负载的性能基准。此次**未观察到严格 Graph-assisted 增量发现**，不宣称普遍无效。未追加收费重复；用户负责逐例独立审核，实际意见返回前所有 annotationProvenance 保持待审。
+单次、固定组顺序和供应商缓存均限制因果解释；同一主机上也运行过后处理开发和本地验证，不是隔离负载的性能基准。此次**未观察到严格 Graph-assisted 增量发现**，不宣称普遍无效。未追加收费重复；后续 Agent 复核发现 r1 标签问题并另冻 r2，不能再把原 gold 称作已验证正确，原分数仅保留历史含义。
 
 全部真实产物位于仓库外 `../output/mergewarden-v02/live-full20-20260920/`：raw、mapping、metrics、trace-analysis、execution-context、e2e-audit、latency-summary、complete-pair-cost 和原生会话。人工审核页在 `../output/mergewarden-v02/human-review-20/review.html`，不展示模型答案；经本人填写并校验后才生成审核 receipt。Graph/parser/resolver 和模型 prompt 未因本次结果修改。
 
@@ -138,7 +148,7 @@ SDK 已报告总 tokens 的 Graph 增幅为 49.3%，**不能当作费用增幅**
 
 共 **90 项通过**，保留原有 51 项，新增 39 项。没有真实模型调用。
 
-新增国内 BigModel GLM-5.3-Flash 配置；3 项离线测试验证注册、实际 Pi HTTP 请求编解码/工具回合和模拟 401，无真实智谱调用。用户配置命令见 [智谱配置](BIGMODEL.md)。
+新增国内 BigModel GLM-5.3-Flash 配置；3 项离线测试验证注册、实际 Pi HTTP 请求编解码/工具回合和模拟 401，无真实智谱调用。用户配置步骤见 [真实模型验收指南](LIVE_ACCEPTANCE.md)。
 
 ### 新增覆盖
 
