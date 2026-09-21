@@ -5,7 +5,7 @@
 | 版本 | 模块 | 验收门槛与当前状态 |
 |---|---|---|
 | v0.1.0 | 不可变提交快照、源码/差异/搜索、Pi 多供应商、final_only、预算/取消、报告、CLI | 离线实现与 v0.2 案例上的真实 GLM CLI smoke 已通过；原独立缺陷/修复 fixture 待验收；未打标签 |
-| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness | 工程路径与四组远端 CI 已通过；真实 CLI smoke/重跑成功，4-case A/B 有 1 次 Graph 组超时且未显示增益；完整真实集、独立人工复核与质量提升待验收 |
+| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness、trace 归因与人工复核入口 | 工程路径、152 项测试与四组远端 CI 通过；真实 CLI smoke/重跑和完整 20+20 A/B 已执行（35/40 完整交付）；未观察到严格 Graph-assisted 发现，独立人工复核、追加重复与真实项目效果待验收 |
 | v0.3.0 | VS Code 本机、引擎工作进程与版本化 IPC、配置/进度/取消/历史/证据/stale、VSIX | 后续实施；底层 staged/worktree 快照已提前作为引擎契约验证 |
 | v0.4.0 | WSL、诊断、资源限制、固定集和真实变更评测、受邀试用文档 | 后续实施；Windows+WSL 和真实模型验证均通过才可验收 |
 
@@ -24,6 +24,8 @@ MVP 固定一个 Pi 会话、final_only 输出。中断后保留实际状态和�
 `eval/cases.json` 已冻结 20 个受控 Python 案例、base/head SHA 和预期行为；`eval/corpus.lock.json` 固定内容摘要。按相同 snapshot、模型、预算、finding/report 协议运行；只增加 Graph capability 描述与图工具。真实 Pi 自动追加 cwd，因此内部 A/B 固定相同仓库外 cwd，并保存/比较实际 system prompt 与模型配置。`--repeats` 支持多次运行、轮换两组顺序；本轮不做统计显著性宣称。
 
 当前 20 例需要独立人工复核并增加真实项目案例；`fixtures/live-v01` 仍只是初次模型 smoke。Finding ↔ golden mapping 必须有语义理由，不能以位置重合自动判对。供应商区分“接入支持”和“实测”；脚本 provider 不属于模型效果验证。尚未取得真实调用条件或完成 WSL 验证时，不标记 v0.4.0 完成。
+
+完整 20-case 单次 GLM 对照已保持原模型、预算、prompt 与 snapshot 跑完；case 答案未改。下一步由用户逐例审核 bug/clean、输入域和行为、severity、Graph 偏向，再生成已审核或有争议的 provenance receipt。若修订答案须升级 corpus 并保留旧结果。关键案例的后续重复沿用相同预算，保留全部失败；先解释实际 tool trace 与缺失 usage，再决定后续改动，不把调 prompt/model/Graph 后的混合收益归给 Graph。
 
 ## MVP 之后
 
