@@ -5,7 +5,7 @@ import { ReviewEngine } from '../src/engine/review.ts';
 import { SnapshotStore } from '../src/snapshot/store.ts';
 import { readRun } from '../src/engine/reports.ts';
 import { isolatedState, sha256, writeJson } from '../src/infrastructure/files.ts';
-import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT } from '../src/engine/prompt.ts';
+import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT, NAVIGATION_POLICY_PROMPT } from '../src/engine/prompt.ts';
 import { score } from '../src/eval/metrics.ts';
 import { materializeCase } from './materialize.mjs';
 import { loadCorpus } from './corpus.mjs';
@@ -29,7 +29,7 @@ if(args.includes('--score')){
  const claim=await import('node:fs/promises');const marker=await claim.open(join(output,'experiment.lock'),'wx');await marker.close();
  const {createPiRuntimeFactory,createPiRuntime}=await import('../integrations/pi/src/runtime.ts');
  const model=live?{provider:config.provider,modelId:config.modelId}:{provider:'fixture',modelId:'offline'};
- const state=join(output,'state');const raw={schemaVersion:1,kind:live?'live-model':'scripted-offline',corpusSha256:sha256(bytes),config,model,selected,repeats,baselinePromptSha256:sha256(BASE_SYSTEM_PROMPT),graphCapabilitySha256:sha256(GRAPH_CAPABILITY_PROMPT),locks:{},runs:[],pairAudits:[]};
+ const state=join(output,'state');const raw={schemaVersion:1,kind:live?'live-model':'scripted-offline',corpusSha256:sha256(bytes),config,model,selected,repeats,baselinePromptSha256:sha256(BASE_SYSTEM_PROMPT),navigationPolicySha256:sha256(NAVIGATION_POLICY_PROMPT),graphCapabilitySha256:sha256(GRAPH_CAPABILITY_PROMPT),locks:{},runs:[],pairAudits:[]};
  raw.implementationFingerprint=await implementationFingerprint();raw.sourceUnchanged=false;
  for(const p of ['package-lock.json','integrations/pi/package-lock.json','integrations/tree-sitter/package-lock.json'])raw.locks[p]=sha256(await readFile(new URL('../'+p,import.meta.url)));
  await writeJson(join(output,'raw.json'),raw);
@@ -50,7 +50,7 @@ if(args.includes('--score')){
     }catch(error){if(!live)console.error(error);entry.error='Review setup/runtime/delivery failed; inspect this case state. No clean result inferred.';entry.elapsedMs=performance.now()-started;}
     raw.runs.push(entry);pair.push(entry);await writeJson(join(output,'raw.json'),raw);
    }
-   const normalized=pair.map(r=>r.manifest?.runtimeConfiguration?{...r.manifest.runtimeConfiguration,systemPrompt:r.manifest.runtimeConfiguration.systemPrompt.replace('\n'+GRAPH_CAPABILITY_PROMPT,'')}:null);
+   const normalized=pair.map(r=>r.manifest?.runtimeConfiguration?{...r.manifest.runtimeConfiguration,systemPrompt:r.manifest.runtimeConfiguration.systemPrompt.replace('\n'+NAVIGATION_POLICY_PROMPT+'\n'+GRAPH_CAPABILITY_PROMPT,'')}:null);
    const verified=normalized.every(Boolean)&&JSON.stringify(normalized[0])===JSON.stringify(normalized[1]);
    raw.pairAudits.push({caseId:item.id,repeat,snapshotId:store.manifest.identity.id,verified,normalizedConfigurationSha256:verified?sha256(JSON.stringify(normalized[0])):null});await writeJson(join(output,'raw.json'),raw);
    if(normalized.every(Boolean)&&!verified)throw Error('A/B effective configuration drift; results cannot be compared');

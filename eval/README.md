@@ -1,5 +1,55 @@
 # Python retrieval evaluation
 
+## 真实 PR 候选扩充（独立于受控 Golden）
+
+`real/manifests/candidates.index.json` 固定真实 PR 候选的 repository、完整来源 SHA、source-row hash 和准入状态；对应 lock 校验字节。它包含 40 个 c-CRAB 正例候选和 64 个 SWRBench source-clean 候选，**不是已审核的 40-case gold**。`screening.json` 只记录 Agent 对原始评语的功能范围筛选，不把排除的评语对应 PR 改标 clean，也不声称人工审查。已有受控 r1/r2 的文件、答案及历史成绩独立保存。
+
+`real/tools/realgolden.py` 改编自用户提供的 RealGolden40 构造包，使用 Python 3.10+ 标准库。`sources.lock.json` 的 revision 2 保留同一个上游 commit，只纠正 Stage 3 的错误 size/blob，保留原记录和核验 URL。原始上游数据、项目对象缓存和运行结果放在 checkout 外；冻结任务及审核证据放在 `real/corpora/mergewarden-real-python40-v1`。下载只接受锁定字节，不接受最新分支替换。
+
+```sh
+npm run eval:real:build -- fetch --cache ../realgolden-work/upstream
+npm run eval:real:build -- import --cache ../realgolden-work/upstream --out ../realgolden-work/draft-v1
+npm run eval:real:probe -- --selection eval/real/manifests/pilot.json --output ../realgolden-work/pilot-v1 --offline
+```
+
+前两条命令下载及导入待审候选，不能自动接受标签。第三条验证四个预留工程 pilot 的原始 Git 对象、SnapshotStore、Graph 和 Pi SDK 报告交付。它只注册脚本 provider，刻意提交空 findings，token 是合成值；600 秒/1000 tools 是离线工程预算，不是已冻结的真人模型实验预算。省略 `--offline` 只做 Git/Snapshot/差异分页预检。`--repositories DIRECTORY` 可以复用有任务身份回执的对象缓存；输出目录不可重复使用。
+
+`real/adapter.mjs` 使用空工作目录中的原始 Git 对象，不写出源码文件、不重造提交、不运行 checkout filters、hooks、Python、setup 或项目测试。SnapshotStore 在 commits 输入下读取原始 blob；所有工具和报告继续走同一个 ReviewEngine。公开任务只允许 case ID、仓库、base/reviewed SHA、语言和输入策略；source comments、fixes、gold 不进入模型输入。每个缓存的 origin 和任务身份都必须匹配。
+
+审核必须检查**实际 base→reviewed 差异**是否与原始标签适用范围相同。上游 base 可能来自更晚或不同分支，产生额外回退。`sourceReviewPaths` 的不匹配是阻断证据；路径相同仍需检查 hunk 和语义，不能据此认定 clean。不得静默换 base、用 merged SHA 或倒放补丁。更正需新版本、Git 历史依据和重新审核。审核必须明确 agent/human、diff scope、context requirement、源码锚点与 severity；不足 24 defect + 16 clean 时 freeze 失败。
+
+```sh
+node --experimental-strip-types eval/real/assess.mjs --candidates ../realgolden-work/draft-v1/candidates.hydrated.jsonl --probe ../realgolden-work/pilot-v1/result.json --output ../realgolden-work/assessment-v1
+```
+
+`assess.mjs` 保留初始 104 候选阶段的历史预检协议，不能用它判断新冻结集是否可启动模型。新流程使用 `eval:real:admission` 和 `eval:real-live`；旧受控 runner 仍然只接收 fixture。
+
+`npm run verify` 包含离线构造器、scope、真实快照分页、准入、冻结 hash、续跑和开放标签评分测试，不下载上游、不访问模型。第三方项目源码不打包；冻结审核证据保留上游评论和出处，来源许可证不变。
+
+## RealGolden40 冻结与运行协议
+
+`real/manifests/closure-index.json` 记录扩充候选的 profile、筛选理由和 formal/reserve 选择。冻结集的 `public/tasks.jsonl` 只含 opaque ID 与 repository/base/reviewed SHA；`hidden/gold.jsonl` 保存答案；`audit/receipts.jsonl` 保存冗余 approved pool、源码 hash、真实父链、review/fix 和审核身份。当前标注由 Agent 静态复核，明确 `humanReviewed=false`；Grade B 不代表执行过上游测试。不能用 Graph coverage 或模型结果重新挑选这些样本。
+
+以下命令在仓库根目录运行，路径占位符应替换为本机仓库外目录。`prepare` 是独立的 Git 对象获取/快照步骤；模型 loop 只复用本地对象，不联网获取目标仓库。
+
+```sh
+npm run eval:real:admission -- verify --corpus eval/real/corpora/mergewarden-real-python40-v1
+npm run eval:real:admission -- prepare --corpus eval/real/corpora/mergewarden-real-python40-v1 --cache ../real-work/repositories --state ../real-work/state --output ../real-work/prepared.json
+npm run eval:real:admission -- profile --corpus eval/real/corpora/mergewarden-real-python40-v1 --cache ../real-work/repositories --state ../real-work/state --output ../real-work/profiles.json
+npm run eval:real:admission -- lock --corpus eval/real/corpora/mergewarden-real-python40-v1 --kind reserve --timeout-ms 300000 --max-tools 100 --run-output ../real-work/reserve-run --output ../real-work/reserve-lock.json
+npm run eval:real-live -- --live --corpus eval/real/corpora/mergewarden-real-python40-v1 --experiment ../real-work/reserve-lock.json --cache ../real-work/repositories --output ../real-work/reserve-run
+```
+
+300 秒/100 tools 是 reserve 的初始运行配置示例，正式预算必须根据本机 pilot 冻结。锁固定 GLM-5.3-Flash、Pi、完整 prompt（含实际 cwd）、实现摘要和 Git commit；运行中不可改变。`--subset ID,ID`、`--arms T0,G0,G1`、`--repeat 2` 可缩小任务或重复运行。reserve 锁使用 `operational_retry`：`--resume` 可仅补跑未完整交付的 job，并保留每次失败尝试及 native session/report。formal 锁强制 `first_attempt`：一个 run key 第一次开始后，completed/partial/failed/timeout/中断记录都是唯一正式结果，resume 只运行从未开始的 job。无法确认拥有者的锁不自动清理。
+
+`lock` 另支持 `--max-tokens 16384 --provider-reasoning-effort high`：通过 Pi 公共 provider 注册接口，仅在评测实例中设置预算，复用同一运行循环，产品 catalog 不变。默认仍为 8192 / `provider-default`。Pi 的 `medium` 是客户端档位；旧 catalog 不发送 `reasoning_effort`，不能将它冒充服务端 medium。显式档位支持 low/high/max，锁同时记录客户端和服务端设置；请求级离线测试验证实际 HTTP payload。调整必须新建 reserve 锁及输出目录，并让三组全部使用同一配置；正式锁必须匹配所依据 pilot 的模型预算。截断、超时和初次网络失败不能由重试成功覆盖。
+
+正式 `lock --kind formal --pilot ../real-work/reserve-run` 必须读取至少 6 个永久预留 task 的三组完成记录，校验原生交付及同一 snapshot，并要求 coverage 和实测 pilot 有调查余量。指定新 `--run-output` 和相同模型配置；只有返回 `READY` 的正式锁可用于 formal tasks。未完成 pilot 时不可启动正式付费实验，reserve 结果不进入正式质量报告。
+
+正式预测裁定先运行 `blind --runs latest.json --gold hidden/gold.jsonl --output packet.json --key-output private-key.json`。裁定者只收到匿名 prediction、源码定位/证据、hidden reference 与 fix evidence；arm、run key、Graph 调用、metrics 和 trace 只在私有 key 中。填写后用 `unblind --judgments judgments.json --key private-key.json --output judgments.jsonl` 恢复 hash-bound scoring identity。`score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用这些裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。
+
+## 受控 Golden
+
 这是同一个 ReviewEngine 的内部工具消融，不是产品模式。`cases.json` 当前为 **controlled-python-v02-20-r2**：4 单文件、4 跨文件、2 多跳、2 import/scope 缺陷，8 个 clean 对照。每例保存仓库逻辑身份、真实 Git base/head SHA、源码、定位、严重性、行为和人工可读理由。r2 经用户授权的 Agent 静态复核修订，作者已看过 r1 模型结果；在 r2 模型调用前冻结，不是独立人工标注或未见结果的 holdout。
 
 `corpus.lock.json` 固定字节摘要。`materialize.mjs` 只用 Git 对象命令重建相同提交，不执行 Python，不 checkout hooks。修订必须有明确源码依据、授权和新 corpus 身份；不能为当前预测改答案。
@@ -39,7 +89,7 @@ npm run eval -- --live --all --repeats 3 --output /outside/checkout/live-repeat
 
 默认 smoke 固定 4 例，可用 `--cases single-zero,cross-key` 选择子集；`--all` 跑 20 例。`--offline` 使用真实 Pi SDK 与刻意提交空 finding 的脚本 provider，token 是合成值，不能作为模型质量/成本证据。`--live` 从 `experiment.json` 指定的环境变量读取密钥，当前固定 bigmodel/glm-5.3-flash、120 秒、40 次工具预算。密钥不进入配置/结果文件。
 
-两组共享相同 snapshot 与 final_only/source evidence/schema/report delivery。v0.1 system prompt 保持冻结，Graph 组只增加能力说明；Pi 会附加 cwd，所以 A/B 固定相同仓库外 cwd。每组记录有效 system prompt、thinking level、API、endpoint、maxTokens、包锁 hash，逐对比较。运行前后核对整个引擎、适配器、schema 和 eval 源码摘要；实验途中修改实现会阻止有效比较。重复运行交替组顺序；Graph 缓存可在同 snapshot 后续运行复用，需按 cold/warm 指标解释成本。
+各臂共享相同 snapshot 与 final_only/source evidence/schema/report delivery。T0 只用 BASE；G0/G1 在同一 BASE 上共享完全相同的中性 navigation policy，差异只限于各自 interface/retrieval 的机械说明。该 policy 说明 untouched context trigger、caller/reference/consumer/dependency 发现、不用结构导航重复确认已读位置，以及失败时回退文本/源码；不强制 Graph 调用。Pi 会附加 cwd，所以 A/B 固定相同仓库外 cwd。每组记录有效 system prompt、thinking level、API、endpoint、maxTokens、包锁 hash，逐对比较。运行前后核对整个引擎、适配器、schema 和 eval 源码摘要；实验途中修改实现会阻止有效比较。重复运行交替组顺序；Graph 缓存可在同 snapshot 后续运行复用，需按 cold/warm 指标解释成本。
 
 ## 原始结果与匹配
 

@@ -6,7 +6,7 @@ import type { RuntimeFactory } from "../../../src/engine/contracts.ts";
 import { createReviewExtension } from "./extension.ts";
 import { registerBigModel } from "./bigmodel.ts";
 import { PiSessionJournal } from "./journal.ts";
-import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT } from "../../../src/engine/prompt.ts";
+import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT, NAVIGATION_POLICY_PROMPT } from "../../../src/engine/prompt.ts";
 import { LOCAGENT_CAPABILITY_PROMPT } from "../../../src/experiments/locagent/contracts.ts";
 export async function createModelRuntime(provider?: string, key?: string): Promise<ModelRuntime> {
   const runtime = await ModelRuntime.create({ modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
@@ -37,9 +37,10 @@ export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], mo
   if (!model) throw new Error("Configured provider/model is not in the configured review catalog; no fallback is allowed");
   const settingsManager = SettingsManager.inMemory();
   const allowlist = new Set(options.tools.map(t => t.name));
+  const structuralCapability = allowlist.has("graph_lookup") ? GRAPH_CAPABILITY_PROMPT : allowlist.has("search_entity") || allowlist.has("traverse_graph") ? LOCAGENT_CAPABILITY_PROMPT : undefined;
   const resourceLoader = new DefaultResourceLoader({ cwd: options.runDir, agentDir: options.runDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPromptOverride: () => BASE_SYSTEM_PROMPT + (allowlist.has("graph_lookup") ? "\n" + GRAPH_CAPABILITY_PROMPT : allowlist.has("search_entity") || allowlist.has("traverse_graph") ? "\n" + LOCAGENT_CAPABILITY_PROMPT : ""),
+    systemPromptOverride: () => BASE_SYSTEM_PROMPT + (structuralCapability ? "\n" + NAVIGATION_POLICY_PROMPT + "\n" + structuralCapability : ""),
     appendSystemPromptOverride: () => [], extensionFactories: [createReviewExtension(allowlist)] });
   await resourceLoader.reload();
   // Opening an exclusively created empty file sets Pi's flushed state via its public API.
