@@ -4,7 +4,7 @@
 
 `real/manifests/candidates.index.json` 固定真实 PR 候选的 repository、完整来源 SHA、source-row hash 和准入状态；对应 lock 校验字节。它包含 40 个 c-CRAB 正例候选和 64 个 SWRBench source-clean 候选，**不是已审核的 40-case gold**。`screening.json` 只记录 Agent 对原始评语的功能范围筛选，不把排除的评语对应 PR 改标 clean，也不声称人工审查。已有受控 r1/r2 的文件、答案及历史成绩独立保存。
 
-`real/tools/realgolden.py` 改编自用户提供的 RealGolden40 构造包，使用 Python 3.10+ 标准库。`sources.lock.json` 的 revision 2 保留同一个上游 commit，只纠正 Stage 3 的错误 size/blob，保留原记录和核验 URL。原始数据、源码、gold、审核记录和运行结果均放在 checkout 外。下载只接受锁定字节，不接受最新分支替换。
+`real/tools/realgolden.py` 改编自用户提供的 RealGolden40 构造包，使用 Python 3.10+ 标准库。`sources.lock.json` 的 revision 2 保留同一个上游 commit，只纠正 Stage 3 的错误 size/blob，保留原记录和核验 URL。原始上游数据、项目对象缓存和运行结果放在 checkout 外；冻结任务及审核证据放在 `real/corpora/mergewarden-real-python40-v1`。下载只接受锁定字节，不接受最新分支替换。
 
 ```sh
 npm run eval:real:build -- fetch --cache ../realgolden-work/upstream
@@ -22,9 +22,29 @@ npm run eval:real:probe -- --selection eval/real/manifests/pilot.json --output .
 node --experimental-strip-types eval/real/assess.mjs --candidates ../realgolden-work/draft-v1/candidates.hydrated.jsonl --probe ../realgolden-work/pilot-v1/result.json --output ../realgolden-work/assessment-v1
 ```
 
-该入口生成当前候选阶段的 `readiness.json`，不启动模型。真实语料还需要合格的最终 tasks/gold/audit/lock、适配真实任务的 live 入口、正式集之外的模型 pilot 和统一预算。旧 `eval/run.mjs` 与 LocAgent runner 仍读取受控 fixture 格式，不能直接传入这份真实候选清单。真实开放标签还需区分 `new_valid`、`duplicate`、`unadjudicated`，不能沿用旧 scorer 把所有未匹配预测自动算作 FP。未完成这些条件前不开展正式 A/B。
+`assess.mjs` 保留初始 104 候选阶段的历史预检协议，不能用它判断新冻结集是否可启动模型。新流程使用 `eval:real:admission` 和 `eval:real-live`；旧受控 runner 仍然只接收 fixture。
 
-`npm run verify` 包含离线构造器准入测试；不下载上游、不访问模型。原始数据/项目许可证沿用各自来源，本仓库未打包第三方源码或原始评语。
+`npm run verify` 包含离线构造器、scope、真实快照分页、准入、冻结 hash、续跑和开放标签评分测试，不下载上游、不访问模型。第三方项目源码不打包；冻结审核证据保留上游评论和出处，来源许可证不变。
+
+## RealGolden40 冻结与运行协议
+
+`real/manifests/closure-index.json` 记录扩充候选的 profile、筛选理由和 formal/reserve 选择。冻结集的 `public/tasks.jsonl` 只含 opaque ID 与 repository/base/reviewed SHA；`hidden/gold.jsonl` 保存答案；`audit/receipts.jsonl` 保存冗余 approved pool、源码 hash、真实父链、review/fix 和审核身份。当前标注由 Agent 静态复核，明确 `humanReviewed=false`；Grade B 不代表执行过上游测试。不能用 Graph coverage 或模型结果重新挑选这些样本。
+
+以下命令在仓库根目录运行，路径占位符应替换为本机仓库外目录。`prepare` 是独立的 Git 对象获取/快照步骤；模型 loop 只复用本地对象，不联网获取目标仓库。
+
+```sh
+npm run eval:real:admission -- verify --corpus eval/real/corpora/mergewarden-real-python40-v1
+npm run eval:real:admission -- prepare --corpus eval/real/corpora/mergewarden-real-python40-v1 --cache ../real-work/repositories --state ../real-work/state --output ../real-work/prepared.json
+npm run eval:real:admission -- profile --corpus eval/real/corpora/mergewarden-real-python40-v1 --cache ../real-work/repositories --state ../real-work/state --output ../real-work/profiles.json
+npm run eval:real:admission -- lock --corpus eval/real/corpora/mergewarden-real-python40-v1 --kind reserve --timeout-ms 300000 --max-tools 100 --run-output ../real-work/reserve-run --output ../real-work/reserve-lock.json
+npm run eval:real-live -- --live --corpus eval/real/corpora/mergewarden-real-python40-v1 --experiment ../real-work/reserve-lock.json --cache ../real-work/repositories --output ../real-work/reserve-run
+```
+
+300 秒/100 tools 是 reserve 的初始运行配置示例，正式预算必须根据本机 pilot 冻结。锁固定 GLM-5.3-Flash、Pi、完整 prompt（含实际 cwd）、实现摘要和 Git commit；运行中不可改变。`--subset ID,ID`、`--arms T0,G0,G1`、`--repeat 2` 可缩小任务或重复运行；`--resume` 要求完全相同 plan/config，仅补跑未完整交付的 job，并保留每次失败尝试及 native session/report。正常中断可续跑；无法确认拥有者的锁不自动清理。
+
+正式 `lock --kind formal --pilot ../real-work/reserve-run` 必须读取至少 6 个永久预留 task 的三组完成记录，校验原生交付及同一 snapshot，并要求 coverage 和实测 pilot 有调查余量。指定新 `--run-output` 和相同模型配置；只有返回 `READY` 的正式锁可用于 formal tasks。未完成 pilot 时不可启动正式付费实验，reserve 结果不进入正式质量报告。
+
+`score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用 hash-bound 人工或 Agent 裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。
 
 ## 受控 Golden
 

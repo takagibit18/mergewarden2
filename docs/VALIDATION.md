@@ -205,3 +205,5 @@ G1 的 3 次 SearchEntity 均命中，entity/content BM25 各参与 4 个查询�
 首次 ff8c8e1 尝试因遗漏参考 invalid-root BM25 hints 而中断，保留 6 份报告和 1 次未完成尝试，未与正式 24 次混算。正式运行后单独修复大量 warnings 的小输出上限反例，并收紧 hint 曝光的 trace 归因；没有替换模型运行。v2 派生分析不改 raw/native，24 次归因结果全部不变。初次 155 项基线验证及后续本地/CI 日志均保留在仓库外；166 项最终确定性测试覆盖这些边界。
 
 原始、mapping、integrity、v1/v2 分析在仓库外 ../output/locagent-replication/challenge-c9584d0/；机器可读 [fidelity](../eval/locagent/locagent-replication-fidelity.json) 与 [冻结协议](experiments/LOCAGENT_REPLICATION.md) 记录适配。内容分块/预览、JS Snowball、fuzzy 顺序、索引生命周期等不等同原版；这是机制实验，不是论文指标复现。未达到 Stage D 门槛，未执行 20×3，不据此断言 Graph 在真实大仓库无价值。
+
+RealGolden 的确定性验证入口仍为 `npm run verify`。新增检查覆盖 raw Git 父链、缺失对象、真实 SnapshotStore 分页、origin/快照身份、24/16 配额、冗余 approved pool、公开任务隔离、完整 Pi prompt、批跑失败保留/续跑和开放标签 precision bounds。它们不执行目标 Python，也不调用模型。真实 reserve pilot 的 native session、report、锁和成本统计由批跑输出目录保留；正式质量必须另行裁定，不能由静态构图或脚本 provider 成功推断。

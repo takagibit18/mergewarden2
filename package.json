@@ -24,6 +24,8 @@
     "eval:human-review": "node --experimental-strip-types eval/human-review.mjs",
     "eval:real:build": "python -B eval/real/tools/realgolden.py",
     "eval:real:probe": "node --experimental-strip-types eval/real/probe.mjs",
+    "eval:real-live": "node --experimental-strip-types eval/real/live.mjs",
+    "eval:real:admission": "node --experimental-strip-types eval/real/cli.mjs",
     "test:real-corpus": "python -B -m unittest discover -s eval/real/tests -v"
   },
   "devDependencies": {

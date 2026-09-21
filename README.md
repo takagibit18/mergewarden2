@@ -33,7 +33,7 @@ Windows 默认数据目录是 `%LOCALAPPDATA%/MergeWarden2`，其他环境为 `~
 | `src/cli` | 审查、模型目录、报告历史、证据读取、环境诊断、死进程遗留锁清理 |
 | `integrations/tree-sitter` | 固定 Python grammar → 普通语法事实；模块、类、函数、方法、import、引用和调用位置 |
 | `src/graph` | 显式作用域/import resolver；HEAD 快照 SQLite；首次查询构图、缓存校验/重建、工作线程取消、分页与覆盖说明 |
-| `eval` / `src/eval` | 20 个冻结受控案例；同快照消融、质量/成本指标、原生 tool trace 归因；另有独立的真实 PR 候选池与 Git 快照预检入口，候选不参与正式评分 |
+| `eval` / `src/eval` | 冻结受控 r2；独立 RealGolden40 任务/gold/audit；原始 Git 快照、T0/G0/G1 批跑与续跑、开放标签评分及 reserve pilot 准入锁 |
 
 CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code 的选择界面、证据跳转、stale 提示及 Windows/WSL 产品验收留到后续版本。忽略文件和未保存缓冲区不纳入。文本工具不会执行仓库代码。
 

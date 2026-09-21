@@ -28,3 +28,5 @@ Graph contract 不含 Tree-sitter 类型。关系只包含 CONTAINS/IMPORTS/REFE
 Trace 分析仅作事后评测，不参与 Pi 决策，不改变 FindingCandidate。graph_assisted 要求 resolved incoming caller 在文本中尚未暴露，Graph 返回后另行读取源码，且 accepted evidence 包含该位置。图返回的精确 GLM tokens 不可得；字符/4 粗估单列。中断响应的全零 SDK usage 明确标为不完整，不能视作零费用。人工审核 receipt 绑定所选 corpus/SHA；r2 的 Agent 修订清单明确 humanReviewed=false，不自动升级人工状态。
 
 分支基线：v0.2 从 5422ba7（完整 feat/review-engine）开始。读取远端时 main=916ebf2，只合入快照；完整引擎已合入 feat/immutable-snapshots=9258306。main 与引擎当时分叉 1/3 提交；没有强推、改写 main 或覆盖用户的未提交文档。
+
+RealGolden 使用独立的 public/hidden/audit/lock contract，入口为 `eval:real:admission` 与 `eval:real-live`。RealCorpusAdapter 仅获取精确 Git 对象并交给现有 SnapshotStore/ReviewEngine/Pi；三种 arm 只存在于评测配置。模型循环不读取 hidden/audit。源码、父链与人工/Agent 身份独立保存；当前冻结标注为 Agent source_reviewed，不冒充 human_reviewed。正式运行要求 reserve pilot 通过并产生 READY experiment lock，语料冻结本身不代表模型质量或运行准入。操作见 [评测协议](../eval/README.md)。
