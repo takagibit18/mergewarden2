@@ -17,7 +17,7 @@ export class LazyCodeGraph implements CodeGraph {
     if (this.closed) throw new Error("Graph service is closed");
     if (this.worker) return this.worker;
     const worker = new Worker(new URL("./worker.ts", import.meta.url), { workerData: { stateDir: this.stateDir, snapshotId: this.snapshotId, ownerToken: this.ownerToken }, execArgv: ["--experimental-strip-types"], resourceLimits: { maxOldGenerationSizeMb: 512 } });
-    worker.on("message", (value: WorkerResult<unknown>) => { const request = this.pending.get(value.id); if (!request) return; this.pending.delete(value.id); request.resolve(value); });
+    worker.on("message", (value: WorkerResult<unknown>) => { const request = this.pending.get(value.id); if (!request) return; this.pending.delete(value.id); request.resolve(value); if (!this.pending.size) worker.unref(); });
     const failed = (error: unknown) => { for (const request of this.pending.values()) request.reject(error); this.pending.clear(); if (this.worker === worker) this.worker = undefined; };
     worker.once("error", () => failed(new Error("Graph worker failed; empty results cannot establish absence.")));
     worker.once("exit", code => { if (code !== 0 || this.pending.size) failed(new Error("Graph worker exited before a verified result.")); if (this.worker === worker) this.worker = undefined; });
@@ -27,7 +27,11 @@ export class LazyCodeGraph implements CodeGraph {
   private async stop(reason: unknown): Promise<void> {
     const worker = this.worker; this.worker = undefined;
     for (const request of this.pending.values()) request.reject(reason); this.pending.clear();
-    if (worker) await worker.terminate().catch(() => undefined);
+    if (worker) {
+      // Keep Node 22 alive until cancellation has actually stopped the worker.
+      worker.ref();
+      await worker.terminate().catch(() => undefined);
+    }
     await releaseGraphBuildLock(this.stateDir, this.snapshotId, this.ownerToken).catch(() => undefined);
   }
   private async query<T>(method: string, input: { snapshotId: string }, signal?: AbortSignal): Promise<GraphPage<T>> {
@@ -38,7 +42,7 @@ export class LazyCodeGraph implements CodeGraph {
       const finishResolve = (value: WorkerResult<unknown>) => { if (settled) return; settled = true; signal?.removeEventListener("abort", cancel); resolve(value as WorkerResult<T>); };
       const finishReject = (error: unknown) => { if (settled) return; settled = true; signal?.removeEventListener("abort", cancel); reject(error); };
       const cancel = () => { this.pending.delete(id); const reason = signal?.reason ?? new Error("Graph cancelled"); void this.stop(reason).finally(() => finishReject(reason)); };
-      this.pending.set(id, { resolve: finishResolve, reject: finishReject }); signal?.addEventListener("abort", cancel, { once: true });
+      this.pending.set(id, { resolve: finishResolve, reject: finishReject }); worker.ref(); signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) cancel(); else worker.postMessage({ id, method, input });
     });
     signal?.throwIfAborted();
