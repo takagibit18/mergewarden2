@@ -73,8 +73,28 @@ test('time and tool budgets cannot become completed reviews', async t => {
   const f = await setup(t);
   const tools = await new ReviewEngine(runtime(async tools => { await tools.read_diff({path:'app.py'}); await submit(tools); })).run({...f.options, maxToolCalls:1});
   assert.equal(tools.report.status, 'partial'); assert.match(tools.report.summary, /tool budget/);
+  const [budgetManifest] = await history(f.state);
+  assert.deepEqual({requested:budgetManifest.metrics.toolRequests,accepted:budgetManifest.metrics.toolAccepted,executed:budgetManifest.metrics.toolExecuted,rejected:budgetManifest.metrics.toolRejected},{requested:2,accepted:1,executed:1,rejected:1});
   const time = await new ReviewEngine(runtime(async () => new Promise(() => {}))).run({...f.options, timeoutMs:5000});
   assert.equal(time.report.status, 'partial'); assert.match(time.report.summary, /time budget/);
+});
+
+test('cancellation stops admission and does not wait forever for an ignoring runtime', async t => {
+  const f = await setup(t); const abort = new AbortController(); let lateExecution = false;
+  const factory = async options => ({
+    journal:new MemoryJournal(),
+    async prompt() {
+      await options.tools.find(tool=>tool.name==='read_diff').execute({path:'app.py'});
+      abort.abort();
+      await assert.rejects(options.tools.find(tool=>tool.name==='search_text').execute({revision:'head',query:'ratio'}));
+      lateExecution = true;
+      await new Promise(()=>{});
+    },
+    async abort(){ await new Promise(()=>{}); }, dispose(){}, usage(){return {input:0,output:0,total:0};}
+  });
+  const started=performance.now(); const r=await new ReviewEngine(factory).run({...f.options,signal:abort.signal});
+  assert.equal(r.report.status,'cancelled'); assert.ok(performance.now()-started<4000); assert.equal(lateExecution,true);
+  const m=(await history(f.state))[0];assert.deepEqual({requested:m.metrics.toolRequests,accepted:m.metrics.toolAccepted,executed:m.metrics.toolExecuted,rejected:m.metrics.toolRejected},{requested:2,accepted:1,executed:1,rejected:1});
 });
 
 test('poisoned journal stops delivery and never publishes completed', async t => {

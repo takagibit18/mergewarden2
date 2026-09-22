@@ -5,12 +5,12 @@ const order = (a:string,b:string)=>a<b?-1:a>b?1:0;
 const size = (v:unknown)=>Buffer.byteLength(JSON.stringify(v));
 const measured = <T extends {responseBytes:number}>(value:T):T=>{let next=size(value);while(next!==value.responseBytes){value.responseBytes=next;next=size(value);}return value;};
 const requireThat = (condition:unknown, message:string):void=>{if(!condition)throw Error(message);};
-const isTest = (path:string)=>path.toLowerCase().split(/[ _/]/).some(p=>p.startsWith('test'));
 export function entityName(s:SymbolFact):string {
   const module=s.path.replace(/\.py$/,'').replace(/\/__init__$/,'').replaceAll('/','.');
-  return s.kind==='module'?s.path:`${s.path}:${s.qualifiedName.startsWith(module+'.')?s.qualifiedName.slice(module.length+1):s.qualifiedName}`;
+  if(s.kind==='directory'||s.kind==='file')return s.path;
+  return `${s.path}:${s.qualifiedName.startsWith(module+'.')?s.qualifiedName.slice(module.length+1):s.qualifiedName}`;
 }
-const metadata=(s:SymbolFact)=>({entityId:s.id,entityName:entityName(s),snapshotId:s.snapshotId,kind:s.kind,name:s.name,qualifiedName:s.qualifiedName,path:s.path,startLine:s.startLine,endLine:s.endLine});
+const metadata=(s:SymbolFact)=>({entityId:s.id,entityName:entityName(s),snapshotId:s.snapshotId,kind:s.kind,...(s.functionKind?{functionKind:s.functionKind}:{}),name:s.name,qualifiedName:s.qualifiedName,path:s.path,startLine:s.startLine,endLine:s.endLine});
 function glob(pattern:string,path:string):boolean {
   const parts=pattern.replaceAll('\\','/').split('**');
   const escape=(s:string)=>s.replace(/[.+^${}()|[\]\\]/g,'\\$&').replaceAll('*','[^/]*').replaceAll('?','[^/]');
@@ -19,30 +19,43 @@ function glob(pattern:string,path:string):boolean {
 /** Retrieval over already-resolved immutable Graph data. It never creates semantic edges. */
 export class LocAgentRetrieval {
   private data:GraphData; private config:RetrievalConfig; private symbols:SymbolFact[];
-  private byId:Map<string,SymbolFact>; private entities:SparseIndex; private contents:SparseIndex;
-  private chunks:{symbol:SymbolFact;startLine:number;endLine:number;text:string}[]=[];
+  private byId:Map<string,SymbolFact>; private entities:SparseIndex; private contents:SparseIndex|undefined; private contentWarning:string|undefined;
+  private chunks:{path:string;startLine:number;endLine:number;text:string}[]=[];
+  private contentDocumentBytes=0;
   constructor(data:GraphData,config:RetrievalConfig={}) {
     this.data=data;this.config=config;
     requireThat(Number.isInteger(config.maxHops??20)&&(config.maxHops??20)>=1&&(config.maxHops??20)<=20,'Invalid configured hop bound');
-    this.symbols=data.symbols.filter(s=>!isTest(s.path)).sort((a,b)=>order(entityName(a),entityName(b))||order(a.id,b.id));
+    this.symbols=[...data.symbols].sort((a,b)=>order(entityName(a),entityName(b))||order(a.id,b.id));
     this.byId=new Map(this.symbols.map(s=>[s.id,s]));
     for(const s of this.symbols)requireThat(s.snapshotId===data.snapshotId,'Cross-snapshot symbol');
     for(const e of data.relations)requireThat(e.snapshotId===data.snapshotId,'Cross-snapshot relation');
-    // Entity ID includes path/module and the nested entity name, as in the reference.
+    // Entity ID includes path/file and the nested entity name, as in the reference.
     this.entities=new SparseIndex(this.symbols.map(entityName));
-    let bytes=0;
-    for(const s of this.symbols){
-      const lines=(data.sources[s.path]??'').split('\n');
-      for(let first=s.startLine;first<=Math.min(s.endLine,lines.length);first+=200){
-        const last=Math.min(first+199,s.endLine,lines.length),text=lines.slice(first-1,last).join('\n');bytes+=Buffer.byteLength(text);
-        requireThat(bytes<=64*1024*1024&&this.chunks.length<200_000,'Retrieval content index bound exceeded');
-        this.chunks.push({symbol:s,startLine:first,endLine:last,text});
+    let bytes=0,disabled=false;const byteLimit=config.contentIndexByteLimit??64*1024*1024,chunkLimit=config.contentIndexChunkLimit??200_000;
+    requireThat(Number.isSafeInteger(byteLimit)&&byteLimit>=0&&Number.isSafeInteger(chunkLimit)&&chunkLimit>=0,'Invalid content index bounds');
+    // Each file contributes a non-overlapping content stream once. Entity mapping happens per hit.
+    for(const [path,source] of Object.entries(data.sources).sort(([a],[b])=>order(a,b))){
+      const lines=source.split('\n');
+      for(let first=1;first<=lines.length;first+=200){
+        const last=Math.min(first+199,lines.length),text=lines.slice(first-1,last).join('\n');bytes+=Buffer.byteLength(text);
+        if(bytes>byteLimit||this.chunks.length>=chunkLimit){disabled=true;break;}
+        this.chunks.push({path,startLine:first,endLine:last,text});
       }
+      if(disabled)break;
     }
-    this.contents=new SparseIndex(this.chunks.map(c=>c.text));
+    if(disabled){this.chunks=[];this.contentWarning='Content retrieval index is unavailable because its configured bound was exceeded; exact/entity search and graph traversal remain available.';}
+    else try{this.contents=new SparseIndex(this.chunks.map(c=>c.text));this.contentDocumentBytes=bytes;}catch{this.chunks=[];this.contentWarning='Content retrieval index failed to initialize; exact/entity search and graph traversal remain available.';}
   }
-  private envelope(){return {status:this.data.coverage.parseIncompleteFiles?'parse_incomplete':this.data.coverage.unsupportedFiles||!this.data.coverage.eligibleFiles?'unsupported':'ok',snapshotId:this.data.snapshotId,revision:'head',coverage:this.data.coverage,warnings:[...this.data.warnings.slice(0,10).map(w=>w.slice(0,512)),'LocAgent-style retrieval excludes test paths. Candidate matches and previews are exploration only; use read_source for evidence.'],explorationOnly:true};}
+  stats(){return {entityIndex:this.entities.stats(),contentIndex:this.contents?.stats(),contentDocumentBytes:this.contentDocumentBytes,contentChunks:this.chunks.length,contentAvailable:Boolean(this.contents)};}
+  private envelope(){return {status:this.data.coverage.parseIncompleteFiles?'parse_incomplete':this.data.generationState==='partial'?'partial':this.data.coverage.unsupportedFiles||!this.data.coverage.eligibleFiles?'unsupported':'ok',snapshotId:this.data.snapshotId,generationId:this.data.generationId,generationState:this.data.generationState,graphScope:this.data.graphScope,revision:'head',coverage:this.data.coverage,warnings:[...this.data.warnings.slice(0,10).map(w=>w.slice(0,512)),...(this.contentWarning?[this.contentWarning]:[]),'Candidate matches and previews are exploration only; use read_source for evidence.'],explorationOnly:true};}
   private exact(term:string):SymbolFact[]{const found=this.symbols.filter(s=>s.id===term||entityName(s)===term||s.qualifiedName===term);return found.length||!term.endsWith('.__init__')?found:this.exact(term.slice(0,-9));}
+  private contentEntity(chunk:{path:string;startLine:number;endLine:number;text:string},term:string):SymbolFact|undefined{
+    const lines=chunk.text.split('\n'),needle=term.toLowerCase();let line=chunk.startLine;
+    const exact=lines.findIndex(value=>value.toLowerCase().includes(needle));if(exact>=0)line+=exact;
+    const overlapping=this.symbols.filter(s=>s.path===chunk.path&&s.kind!=='directory'&&s.startLine<=line&&s.endLine>=line);
+    return overlapping.sort((a,b)=>(a.endLine-a.startLine)-(b.endLine-b.startLine)||Number(a.kind==='file')-Number(b.kind==='file')||order(a.id,b.id))[0]
+      ??this.symbols.find(s=>s.path===chunk.path&&s.kind==='file');
+  }
   private preview(s:SymbolFact,mode:string){
     if(mode==='fold')return {};
     const lines=(this.data.sources[s.path]??'').split('\n'),end=Math.min(s.endLine,s.startLine+(mode==='full'?99:5));
@@ -65,7 +78,7 @@ export class LocAgentRetrieval {
       let found=this.exact(term);
       if(found.length===1){stage.exactIdHits=1;hits.push({s:found[0]!,matchMode:'exact_id',renderMode:terms.length===1?'full':'preview',query:term});continue;}
       let clean=term.replace(/^(class|function|method|def)\s+/i,'');
-      const byName=(name:string,scope:boolean)=>{const candidates=this.symbols.filter(s=>!scope||include.has(s.id));const names=(s:SymbolFact)=>[s.name,...(s.kind==='module'?[s.path.split('/').at(-1)!,s.path.split('/').at(-1)!.replace(/\.py$/,'')]:[])];const exact=candidates.filter(s=>names(s).includes(name));return exact.length?exact:candidates.filter(s=>names(s).some(n=>n.toLowerCase()===name.toLowerCase()));};
+      const byName=(name:string,scope:boolean)=>{const candidates=this.symbols.filter(s=>!scope||include.has(s.id));const names=(s:SymbolFact)=>[s.name,...(s.kind==='file'?[s.path.split('/').at(-1)!,s.path.split('/').at(-1)!.replace(/\.py$/,'')]:[])];const exact=candidates.filter(s=>names(s).includes(name));return exact.length?exact:candidates.filter(s=>names(s).some(n=>n.toLowerCase()===name.toLowerCase()));};
       found=byName(clean,true);if(!found.length)found=byName(clean,false);
       let continueSparse=false;
       if(!found.length&&clean.includes('.')){
@@ -77,17 +90,18 @@ export class LocAgentRetrieval {
       if(this.config.bm25Enabled!==false){
         stage.bm25EntityCalls++;
         const all=this.entities.search(term,10),local=all.filter(r=>include.has(this.symbols[r.index]!.id));
-        for(const row of (local.length?local:all).slice(0,5)){const s=this.symbols[row.index]!;hits.push({s,matchMode:'bm25_entity',score:row.score,renderMode:s.kind==='module'?'fold':'preview',query:term});}
+        for(const row of (local.length?local:all).slice(0,5)){const s=this.symbols[row.index]!;hits.push({s,matchMode:'bm25_entity',score:row.score,renderMode:['directory','file'].includes(s.kind)?'fold':'preview',query:term});}
         // Reference keeps continue_search true after BM25 entity hits, so content is supplemental.
-        stage.bm25ContentCalls++;
-        const chunks=this.contents.search(term,10).filter(r=>include.has(this.chunks[r.index]!.symbol.id));
-        for(const row of chunks.slice(0,5)){const chunk=this.chunks[row.index]!;hits.push({s:chunk.symbol,matchMode:'bm25_content',score:row.score,renderMode:'preview',query:term,contentRange:{startLine:chunk.startLine,endLine:chunk.endLine}});}
+        if(this.contents){stage.bm25ContentCalls++;
+          const chunks=this.contents.search(term,10).map(row=>({row,chunk:this.chunks[row.index]!,symbol:this.contentEntity(this.chunks[row.index]!,term)})).filter(value=>value.symbol&&include.has(value.symbol.id));
+          for(const {row,chunk,symbol} of chunks.slice(0,5))hits.push({s:symbol!,matchMode:'bm25_content',score:row.score,renderMode:symbol!.kind==='file'?'fold':'preview',query:term,contentRange:{startLine:chunk.startLine,endLine:chunk.endLine}});
+        }
       }
       // Task requires fuzzy LAST. Reference invokes it before content; explicitly documented adaptation.
       if(this.config.fuzzyEnabled!==false&&!hits.some(h=>h.query===term)){
         stage.fuzzyCalls++;
         const candidates=this.symbols.map(s=>({s,score:fuzzyScore(term,entityName(s))})).sort((a,b)=>b.score-a.score||order(entityName(a.s),entityName(b.s))).slice(0,3);
-        for(const row of candidates)hits.push({s:row.s,matchMode:'fuzzy',score:row.score,renderMode:row.s.kind==='module'?'fold':'preview',query:term});
+        for(const row of candidates)hits.push({s:row.s,matchMode:'fuzzy',score:row.score,renderMode:['directory','file'].includes(row.s.kind)?'fold':'preview',query:term});
       }
     }
     // Preserve all retrieval modes on deduplicated entities, while retaining exact-first ordering.
@@ -111,8 +125,8 @@ export class LocAgentRetrieval {
     requireThat(['upstream','downstream','both'].includes(input.direction),'Invalid direction');
     requireThat(Number.isInteger(input.maxHops)&&input.maxHops>=1&&input.maxHops<=20,'maxHops must be 1..20');
     requireThat(Number.isInteger(input.maxNodes)&&input.maxNodes>=1&&input.maxNodes<=100,'maxNodes must be 1..100');
-    requireThat(Array.isArray(input.entityTypeFilter)&&input.entityTypeFilter.every(k=>['module','class','function','method'].includes(k)),'Invalid entity type filter');
-    requireThat(Array.isArray(input.relationTypeFilter)&&input.relationTypeFilter.every(k=>['CONTAINS','IMPORTS','REFERENCES','CALLS'].includes(k)),'Invalid relation type filter');
+    requireThat(Array.isArray(input.entityTypeFilter)&&input.entityTypeFilter.every(k=>['directory','file','class','function'].includes(k)),'Invalid entity type filter');
+    requireThat(Array.isArray(input.relationTypeFilter)&&input.relationTypeFilter.every(k=>['CONTAINS','IMPORTS','CALLS','INHERITS'].includes(k)),'Invalid relation type filter');
     const maxBytes=input.maxBytes??32768;requireThat(Number.isInteger(maxBytes)&&maxBytes>=2048&&maxBytes<=32768,'maxBytes must be 2048..32768');
     const maxHops=Math.min(input.maxHops,this.config.maxHops??20);
     const roots:SymbolFact[]=[],hints:{query:string;matchMode:string;candidates:ReturnType<typeof metadata>[]}[]=[];
@@ -127,30 +141,32 @@ export class LocAgentRetrieval {
     while(size(result)>maxBytes-512&&result.warnings.length>1){result.warnings.shift();result.truncated=true;omittedDiagnostics=true;}
     if(omittedDiagnostics)result.warnings.unshift('Some diagnostic details were omitted to respect maxBytes; inspect coverage.');
     const incoming=new Map<string,RelationFact[]>(),outgoing=new Map<string,RelationFact[]>();
-    for(const edge of this.data.relations){outgoing.set(edge.fromId,[...outgoing.get(edge.fromId)??[],edge]);incoming.set(edge.toId,[...incoming.get(edge.toId)??[],edge]);}
+    for(const edge of this.data.relations){if(!['resolved_scoped','resolved_import_alias'].includes(edge.resolution))continue;outgoing.set(edge.fromId,[...outgoing.get(edge.fromId)??[],edge]);incoming.set(edge.toId,[...incoming.get(edge.toId)??[],edge]);}
     const fits=()=>size({...result,tree:lines.join('\n')})<=maxBytes-512;
     let stopped=false;
     for(const root of roots){
-      const visited=new Set<string>(),structuralEdges=new Set<string>();
+      const bestDepth=new Map<string,number>(),structuralEdges=new Set<string>();
       const visit=(s:SymbolFact,prefix:string,depth:number,direction:string,via?:RelationFact,pathResolved=true)=>{
         if(stopped)return;
+        const state=`${s.id}:${input.direction==='both'?'both':direction}`;const previous=bestDepth.get(state),improves=previous===undefined||depth<previous;if(improves)bestDepth.set(state,depth);
+        const structuralKey=via?JSON.stringify([via.fromId,via.relation,via.toId]):undefined,show=!structuralKey||!structuralEdges.has(structuralKey);if(structuralKey&&show)structuralEdges.add(structuralKey);
+        if(!show&&!improves)return;
         const fresh=!nodeIds.has(s.id);
         if(fresh&&nodeIds.size>=input.maxNodes){result.truncated=true;return;}
         const line=depth===0?`${entityName(s)} [${s.kind}; id=${s.id}]`:`${prefix}└── ${via!.relation}${direction==='upstream'?'-by ←':' →'} [${via!.resolution}] ${entityName(s)} [${s.kind}; id=${s.id}]`;
         if(fresh){nodeIds.add(s.id);items.push({...metadata(s),depth,rootEntityId:root.id,...(via?{discoveredVia:{edgeId:via.id,relation:via.relation,direction,resolution:via.resolution,pathResolved}}:{})});}
-        let newEdge=false;if(via&&!edgeIds.has(via.id)){edges.push(via);edgeIds.add(via.id);newEdge=true;}
-        lines.push(line);
+        let newEdge=false;if(show&&via&&!edgeIds.has(via.id)){edges.push(via);edgeIds.add(via.id);newEdge=true;}
+        if(show)lines.push(line);
         if(edges.length>200||!fits()){
-          lines.pop();if(fresh){nodeIds.delete(s.id);items.pop();}if(newEdge){edges.pop();edgeIds.delete(via!.id);}result.truncated=true;stopped=true;return;
+          if(show)lines.pop();if(fresh){nodeIds.delete(s.id);items.pop();}if(newEdge){edges.pop();edgeIds.delete(via!.id);}result.truncated=true;stopped=true;return;
         }
-        if(depth>=maxHops||visited.has(s.id))return;visited.add(s.id);
-        const dirs=depth===0&&direction==='both'?['downstream','upstream']:[direction];
+        if(depth>=maxHops||!improves)return;
+        const dirs=input.direction==='both'?['downstream','upstream']:[direction];
         for(const dir of dirs){
           const neighbors=(dir==='upstream'?incoming:outgoing).get(s.id)??[];
           for(const edge of [...neighbors].sort((a,b)=>order(entityName(this.byId.get(dir==='upstream'?a.fromId:a.toId)??s),entityName(this.byId.get(dir==='upstream'?b.fromId:b.toId)??s))||order(a.relation,b.relation)||order(a.id,b.id))){
             const next=this.byId.get(dir==='upstream'?edge.fromId:edge.toId);if(!next)continue;
             if(input.relationTypeFilter.length&&!input.relationTypeFilter.includes(edge.relation)||input.entityTypeFilter.length&&!input.entityTypeFilter.includes(next.kind))continue;
-            const key=JSON.stringify([edge.fromId,edge.relation,edge.toId]);if(structuralEdges.has(key))continue;structuralEdges.add(key);
             visit(next,prefix+'    ',depth+1,dir,edge,pathResolved&&['resolved_scoped','resolved_import_alias'].includes(edge.resolution));
           }
         }

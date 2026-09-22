@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schemaVersion", "attributionVersion", "provisional", "rawSha256", "analyzerSha256", "definitions", "runs", "byArm"],
   "properties": {
-    "schemaVersion": {"const": 1}, "attributionVersion": {"const": "trace-attribution-1"}, "provisional": {"type": "boolean"},
+    "schemaVersion": {"const": 1}, "attributionVersion": {"const": "trace-attribution-2"}, "provisional": {"type": "boolean"},
     "rawSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "analyzerSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "definitions": {"type": "object"}, "byArm": {"type": "object"},
     "runs": {"type": "array", "items": {"type": "object", "required": ["runKey", "caseId", "arm", "status", "analysisStatus"], "properties": {

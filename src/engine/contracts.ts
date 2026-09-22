@@ -25,7 +25,12 @@ export interface RunManifest {
   status: "running" | "delivered" | "delivery_failed"; createdAt: string; finishedAt?: string;
   parentRunId?: string; outcome?: ReviewReport["status"]; error?: string;
   reportSha256?: string; markdownSha256?: string; usage?: { input: number; output: number; total: number };
-  metrics?: { toolCalls: number; graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"]; navigation: { attempted: boolean; degraded: boolean; errors: number } };
+  metrics?: {
+    /** Executed is kept as toolCalls for backwards-compatible experiment summaries. */
+    toolCalls: number; toolRequests: number; toolAccepted: number; toolExecuted: number; toolRejected: number;
+    graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"];
+    navigation: { attempted: boolean; degraded: boolean; errors: number };
+  };
   toolExposure?: "text-only" | "text+graph" | "text+locagent";
   runtimeConfiguration?: ReturnType<NonNullable<ReviewRuntime["configuration"]>>;
 }

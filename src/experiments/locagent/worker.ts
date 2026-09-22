@@ -1,29 +1,20 @@
 import {parentPort,workerData} from 'node:worker_threads';
 import {DatabaseSync} from 'node:sqlite';
 import {SnapshotStore} from '../../snapshot/store.ts';
-import {SqliteCodeGraph,graphPath} from '../../graph/sqlite-store.ts';
-import type {SymbolFact,RelationFact} from '../../graph/contracts.ts';
+import {emptyCoverage} from '../../graph/contracts.ts';
+import {GraphOpenError,SqliteCodeGraph,publishedGraphPath,readGraphEntities,readGraphRelations} from '../../graph/sqlite-store.ts';
+import type {GraphMetrics} from '../../graph/sqlite-store.ts';
 import {LocAgentRetrieval} from './retrieval.ts';
-try{
- const store=await SnapshotStore.load(workerData.stateDir,workerData.snapshotId);
- const {graph,metrics}=await SqliteCodeGraph.open(store);
+let retrieval:LocAgentRetrieval|undefined,metrics:GraphMetrics|undefined,indexMs=0,first=true;let queue=Promise.resolve();
+async function initialize(){
+ const store=await SnapshotStore.load(workerData.stateDir,workerData.snapshotId);const opened=await SqliteCodeGraph.open(store,{ownerToken:workerData.ownerToken});metrics=opened.metrics;
  try{
-  // open() performs the SAME frozen schema/version/digest checks as G0 before any read.
-  const db=new DatabaseSync(graphPath(workerData.stateDir,workerData.snapshotId),{readOnly:true});
-  try{
-   const id=store.manifest.identity.id;
-   const symbols=db.prepare('SELECT payload FROM symbols WHERE snapshot_id=? ORDER BY symbol_id').all(id).map(r=>JSON.parse(String(r.payload)) as SymbolFact);
-   const relations=db.prepare('SELECT payload FROM relations WHERE snapshot_id=? ORDER BY relation_id').all(id).map(r=>JSON.parse(String(r.payload)) as RelationFact);
-   const meta=db.prepare('SELECT warnings FROM graph_snapshots WHERE snapshot_id=?').get(id)!;
-   const sources:Record<string,string>={};for(const path of new Set(symbols.map(s=>s.path)))sources[path]=await store.text('head',path);
-   const start=performance.now();
-   const retrieval=new LocAgentRetrieval({snapshotId:id,symbols,relations,sources,coverage:metrics.coverage,warnings:JSON.parse(String(meta.warnings))},workerData.config);
-   const indexMs=performance.now()-start,queryStarted=performance.now();
-   let page;
-   try{page=workerData.method==='search_entity'?retrieval.search(workerData.input):retrieval.traverse(workerData.input);}
-   catch(error){page={status:'error',snapshotId:id,revision:'head',items:[],truncated:false,coverage:metrics.coverage,warnings:[error instanceof Error?error.message:'Retrieval query failed','Empty results do not establish absence.'],explorationOnly:true};}
-   metrics.queryMs=performance.now()-queryStarted;
-   parentPort!.postMessage({page,metrics,retrievalIndexMs:indexMs});
-  }finally{db.close();}
- }finally{graph.close();}
-}catch(error){parentPort!.postMessage({error:error instanceof Error?error.message:'LocAgent retrieval failed'});}
+  const db=new DatabaseSync(await publishedGraphPath(workerData.stateDir,workerData.snapshotId),{readOnly:true});
+  try{const id=store.manifest.identity.id;const symbols=readGraphEntities(db,id);const relations=readGraphRelations(db,id);const meta=db.prepare('SELECT warnings,generation_id,state,graph_scope FROM graph_snapshots WHERE snapshot_id=?').get(id)!;const sources:Record<string,string>={};for(const path of new Set(symbols.filter(s=>s.kind==='file').map(s=>s.path)))sources[path]=await store.text('head',path);const start=performance.now();retrieval=new LocAgentRetrieval({snapshotId:id,generationId:String(meta.generation_id),generationState:String(meta.state) as 'ready'|'partial',graphScope:String(meta.graph_scope) as 'core'|'all',symbols,relations,sources,coverage:metrics.coverage,warnings:JSON.parse(String(meta.warnings))},workerData.config);indexMs=performance.now()-start;}finally{db.close();}
+ }finally{opened.graph.close();}
+}
+async function handle(message:{id:number;method:string;input:any}){
+ try{if(!retrieval)await initialize();const started=performance.now();let page;try{page=message.method==='search_entity'?retrieval!.search(message.input):retrieval!.traverse(message.input);}catch(error){page={status:'error',snapshotId:workerData.snapshotId,revision:'head',items:[],truncated:false,coverage:metrics!.coverage,warnings:[error instanceof Error?error.message:'Retrieval query failed','Empty results do not establish absence.'],explorationOnly:true};}const value:GraphMetrics=first?{...metrics!,queryMs:performance.now()-started}:{...metrics!,buildMs:0,queryMs:performance.now()-started,cacheHit:true,resumedFiles:0,extractedFiles:0,resumedResolutionFiles:0,resolvedFiles:0};parentPort!.postMessage({id:message.id,page,metrics:value,retrievalIndexMs:first?indexMs:0});first=false;}
+ catch(error){if(error instanceof GraphOpenError)parentPort!.postMessage({id:message.id,page:{status:error.status,snapshotId:workerData.snapshotId,revision:'head',items:[],truncated:false,coverage:error.coverage,warnings:error.warnings,explorationOnly:true},metrics:{buildMs:0,queryMs:0,cacheHit:false,coverage:error.coverage,resumedFiles:0,extractedFiles:0,resumedResolutionFiles:0,resolvedFiles:0,storage:{generationBytes:0,checkpointBytes:0}}});else parentPort!.postMessage({id:message.id,page:{status:'error',snapshotId:workerData.snapshotId,revision:'head',items:[],truncated:false,coverage:metrics?.coverage??emptyCoverage(),warnings:[error instanceof Error?error.message:'LocAgent retrieval failed'],explorationOnly:true}});}
+}
+parentPort!.on('message',message=>{queue=queue.then(()=>handle(message));});

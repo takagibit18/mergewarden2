@@ -1,12 +1,24 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { SnapshotStore } from "../snapshot/store.ts";
-import { SqliteCodeGraph } from "./sqlite-store.ts";
-try {
-  const store = await SnapshotStore.load(workerData.stateDir, workerData.snapshotId);
-  const { graph, metrics } = await SqliteCodeGraph.open(store);
+import { emptyCoverage } from "./contracts.ts";
+import { GraphOpenError, SqliteCodeGraph } from "./sqlite-store.ts";
+import type { GraphMetrics, SqliteCodeGraph as GraphHandle } from "./sqlite-store.ts";
+
+let graph: GraphHandle | undefined; let openedMetrics: GraphMetrics | undefined; let deliveredOpenMetrics = false;
+let queue: Promise<void> = Promise.resolve();
+async function handle(message: { id: number; method: string; input: Parameters<GraphHandle["lookup"]>[0] & Parameters<GraphHandle["neighbors"]>[0] }): Promise<void> {
   try {
-    const start = performance.now();
-    const page = workerData.method === "lookup" ? await graph.lookup(workerData.input) : await graph.neighbors(workerData.input);
-    metrics.queryMs = performance.now() - start; parentPort!.postMessage({ page, metrics });
-  } finally { graph.close(); }
-} catch { parentPort!.postMessage({ error: "Graph index/query failed; use immutable text tools. This is not evidence of absence." }); }
+    if (!graph) {
+      const store = await SnapshotStore.load(workerData.stateDir, workerData.snapshotId);
+      const opened = await SqliteCodeGraph.open(store, { ownerToken: workerData.ownerToken }); graph = opened.graph; openedMetrics = opened.metrics;
+    }
+    const queryStarted = performance.now(); const page = message.method === "lookup" ? await graph.lookup(message.input) : await graph.neighbors(message.input);
+    const base = openedMetrics!; const metrics: GraphMetrics = deliveredOpenMetrics ? { ...base, buildMs: 0, queryMs: performance.now() - queryStarted, cacheHit: true, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0 } : { ...base, queryMs: performance.now() - queryStarted };
+    deliveredOpenMetrics = true; parentPort!.postMessage({ id: message.id, page, metrics });
+  } catch (error) {
+    if (error instanceof GraphOpenError) parentPort!.postMessage({ id: message.id, page: { status: error.status, snapshotId: workerData.snapshotId, revision: "head", items: [], truncated: false, coverage: error.coverage, warnings: error.warnings }, metrics: { buildMs: 0, queryMs: 0, cacheHit: false, coverage: error.coverage, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: 0, checkpointBytes: 0 } } });
+    else parentPort!.postMessage({ id: message.id, page: { status: "error", snapshotId: workerData.snapshotId, revision: "head", items: [], truncated: false, coverage: openedMetrics?.coverage ?? emptyCoverage(), warnings: [error instanceof Error ? error.message : "Graph index/query failed", "Empty results do not establish absence."] } });
+  }
+}
+parentPort!.on("message", message => { queue = queue.then(() => handle(message)); });
+process.once("exit", () => { graph?.close(); });

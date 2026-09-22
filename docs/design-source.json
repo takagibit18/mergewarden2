@@ -233,16 +233,16 @@
           ],
           "rows": [
             [
-              "Symbol",
-              "路径 + 作用域 + 快照内身份；不能只用 save 这样的短名称当键"
+              "Entity",
+              "directory/file/class/function 的路径、作用域与快照内身份；不能只用 save 这样的短名称当键"
             ],
             [
-              "CallSite / Reference",
-              "保存引用表达式、源码位置和所属作用域；未解析目标仍保留"
+              "Dependency site",
+              "保存 call/import/inherit 表达式、源码位置和所属作用域；候选/未解析目标仍保留但不成为边"
             ],
             [
               "关系",
-              "优先 CONTAINS / IMPORTS / REFERENCES / CALLS；逐类定义语义并测试"
+              "CONTAINS / IMPORTS / CALLS / INHERITS；普通引用走文本搜索，候选不成为可遍历边"
             ],
             [
               "resolution",

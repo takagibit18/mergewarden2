@@ -31,17 +31,17 @@ Windows 默认数据目录是 `%LOCALAPPDATA%/MergeWarden2`，其他环境为 `~
 | `src/engine` | 单次审查、最终候选校验、证据完整性、覆盖检查、预算、取消、原快照重跑 |
 | `integrations/pi` | 原生会话与业务 CustomEntry、启动前落盘、同步检查、模型工具循环、精确工具白名单 |
 | `src/cli` | 审查、模型目录、报告历史、证据读取、环境诊断、死进程遗留锁清理 |
-| `integrations/tree-sitter` | 固定 Python grammar → 普通语法事实；模块、类、函数、方法、import、引用和调用位置 |
-| `src/graph` | 显式作用域/import resolver；HEAD 快照 SQLite；首次查询构图、缓存校验/重建、工作线程取消、分页与覆盖说明 |
+| `integrations/tree-sitter` | 固定 Python grammar → 普通语法事实；file/class/function、import、call 与 inheritance site |
+| `src/graph` | LocAgent 风格实体层级；保守作用域/import resolver；core/all HEAD 图；可恢复构建、不可变 SQLite generation、取消、分页与覆盖说明 |
 | `eval` / `src/eval` | 冻结受控 r2；独立 RealGolden40 任务/gold/audit；原始 Git 快照、T0/G0/G1 批跑与续跑、开放标签评分及 reserve pilot 准入锁 |
 
 CLI 的 `--scope staged` / `--scope worktree` 已有底层回归测试；VS Code 的选择界面、证据跳转、stale 提示及 Windows/WSL 产品验收留到后续版本。忽略文件和未保存缓冲区不纳入。文本工具不会执行仓库代码。
 
 默认预算 **10 分钟、100 次工具调用**，可用 `--timeout-ms` / `--max-tools` 调整。记录 token 用量，不估算未知价格。候选通过结构和证据 hash 校验后作为人工复核建议保存，这不证明缺陷语义成立。
 
-图工具只有 `graph_lookup`（精确 symbol/限定名）和 `graph_neighbors`（指定关系、方向和分页的一跳查询）。图只索引当前快照的 **head**，不会把 base/head 混在一起。返回 resolution、coverage 和 warnings；空结果不能证明没有调用者。图查询后的 finding 证据仍须用 `read_source` 实际读取和核对。动态 receiver、外部依赖、复杂动态绑定保持不确定；[解析边界](integrations/tree-sitter/README.md)。
+图工具只有 `graph_lookup`（精确 entity/限定名）和 `graph_neighbors`（指定关系、方向和分页的一跳查询）。实体为 directory/file/class/function，method 作为 function 子类；可遍历关系为 CONTAINS/IMPORTS/CALLS/INHERITS。普通名称引用不建图，应使用 `search_text`。图只索引当前快照的 **head**，不会把 base/head 混在一起。返回 resolution、coverage 和 warnings；空结果不能证明没有调用者。图查询后的 finding 证据仍须用 `read_source` 实际读取和核对。动态 receiver、外部依赖、复杂动态绑定保持不确定；[解析边界](integrations/tree-sitter/README.md)。
 
-图不存在时延迟构建；未调用图工具的审查不会加载 parser 或创建图数据库。索引位于仓库外，绑定 snapshot、schema v2、resolver 和固定 parser 版本；损坏/未完成索引从冻结源码全量重建。图是可选导航能力：查询失败会在 manifest 和报告摘要中记录 navigation degraded，Agent 可回退到文本/源码工具；已满足差异覆盖、证据和最终提交门槛的 review 不会仅因可选图失败被降级。
+图不存在时延迟构建；未调用图工具的审查不会加载 parser 或创建图数据库。默认 `core` 始终纳入 changed Python 与生产代码，排除未变更 test/example/benchmark/generated/vendor；显式 `all` 使用独立缓存身份。schema v4 身份绑定 snapshot、resolver、固定 parser、范围策略与资源预算；v2/v3 缓存不迁移而按新身份重建。提取和关系结果按完整文件保存到不可查询的 checkpoint；最终库只保留紧凑实体、dependency site、聚合关系与逐 site 来源，不重复保存 facts JSON。通过校验后才以不可变 generation + 原子 manifest 发布 ready/partial。损坏 generation 从 checkpoint 有界恢复，确定性容量失败不会被每次查询重复执行。图是可选导航能力：查询失败会在 manifest 和报告摘要中记录 navigation degraded，Agent 可回退到文本/源码工具；已满足差异覆盖、证据和最终提交门槛的 review 不会仅因可选图失败被降级。设计与来源边界见 [ADR-0014](docs/adr/0014.md)。
 
 评测命令见 [评测说明](eval/README.md)。`npm run eval -- --offline --all --output /outside/checkout/eval-run` 运行真实 Pi SDK 加脚本 provider，仅验证工程路径。`--live` 使用固定配置与明确环境变量；逐例语义匹配完成后才能汇总真实质量。Text-only 是内部消融，CLI 产品没有模式切换。
 
