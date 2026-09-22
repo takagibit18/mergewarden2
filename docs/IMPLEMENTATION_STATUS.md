@@ -15,7 +15,7 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 | 原生日志 | 独占空文件经公开 SessionManager.open 初始化；首条回复前持久化；fsync 和写入故障检查 | 不宣称数据库级事务或 exactly-once |
 | 报告和恢复 | JSON/Markdown 原子替换；交付清单最后写入；历史校验；原快照新 run | 中断模型会话不续接；运行中硬退出可能留锁 |
 | CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
-| Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、SQLite v2、按需两工具、可终止工作线程 | 只索引 head；动态 receiver、全类型推断及增量更新不支持 |
+| Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、可恢复 checkpoint、不可变 generation 原子发布、失败缓存、单 review 可终止 worker | 只索引 head；动态 receiver、全类型推断及跨 snapshot 增量更新不支持 |
 | VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
 | 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；逐例语义 mapping 与 native trace 派生归因 | r2 未执行全 20-case 新对照；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
 
@@ -23,9 +23,11 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 
 持久化故障会使本次 run 无法确认交付。历史只把清单及产物 hash 一致的记录当作已交付；`running` 仅是最后写入状态，不代表进程仍活跃。`doctor` 检查锁拥有者，`unlock` 仅清理已退出进程的锁。临时文件可能在硬退出后遗留；不自动删除历史快照和报告。
 
-Graph contract 不含 Tree-sitter 类型。关系只包含 CONTAINS/IMPORTS/REFERENCES/CALLS；provenance 保存源码范围、site id、snapshot 和 resolver 版本。候选调用只保留 candidate target 与 REFERENCES，不生成已确认 CALLS。数据库就绪需要事务完成、外键/数量核验和内容摘要；缓存读取重新核验版本、SQLite 完整性和内容摘要。解析有缺口的完整索引可 ready，但查询状态为 parse_incomplete，不能把它解释为完整程序关系。
+Graph contract 不含 Tree-sitter CST 类型。稳定性层暂时保持 CONTAINS/IMPORTS/REFERENCES/CALLS；provenance 保存源码范围、site id、snapshot 和 resolver 版本。候选调用只保留 candidate target 与 REFERENCES，不生成已确认 CALLS。发布需要事务完成、外键、计数与 SQLite quick-check；热查询固定在同一已验证 generation，不再 `SELECT *` 全库序列化摘要。解析、文件或容量有缺口的 generation 只能是 partial，并在查询状态与覆盖摘要中继续显式暴露。
 
-构图限 200,000 facts、400,000 relations，工作线程内存上限 512 MiB，并受本次 review 的超时/取消约束。每页最多 100 项/32 KiB items，warnings 有界。一次查询一个工作线程，因此 warm request 包含线程启动和缓存校验；queryMs 单独记录。SQLite 派生数据损坏会保留 .discarded 文件供诊断，再重建；不做自动清理或复杂增量失效。
+默认构图预算为 200,000 facts、400,000 relations，单文件另有事实数和时间上限；预算属于缓存身份。完整文件提取结果逐文件真实提交到 staging，只有校验后的不可变 generation 可查询；容量不足可以发布范围明确的 partial。工作线程的 512 MiB 参数只限制 V8 old generation，不代表进程 RSS、WASM 或 ArrayBuffer 的总内存硬上限。每页最多 100 项/32 KiB，warnings 有界。一个 review 复用同一 worker、只读 SQLite 句柄及检索索引；损坏 generation 单次隔离后从 checkpoint 恢复。
+
+审查 deadline、显式取消和工具预算会关闭新工具接纳，预算在接纳时原子扣减；manifest 分别记录请求、接纳、执行和拒绝数量。runtime abort、工具队列与 worker 清理均有界，取消后不再启动新工具；本地中断不证明供应商已经停止远端计费。
 
 Trace 分析仅作事后评测，不参与 Pi 决策，不改变 FindingCandidate。graph_assisted 要求 resolved incoming caller 在文本中尚未暴露，Graph 返回后另行读取源码，且 accepted evidence 包含该位置。图返回的精确 GLM tokens 不可得；字符/4 粗估单列。中断响应的全零 SDK usage 明确标为不完整，不能视作零费用。人工审核 receipt 绑定所选 corpus/SHA；r2 的 Agent 修订清单明确 humanReviewed=false，不自动升级人工状态。
 

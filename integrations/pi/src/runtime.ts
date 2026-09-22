@@ -67,11 +67,18 @@ export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], mo
     configuration() { return { systemPrompt: session.systemPrompt, thinkingLevel: session.thinkingLevel, modelApi: model.api, modelBaseUrl: model.baseUrl, modelMaxTokens: model.maxTokens }; },
     async prompt(text, signal) {
       signal.throwIfAborted();
+      let rejectAbort: (() => void) | undefined;
+      const stop = () => { void session.abort().catch(() => undefined); rejectAbort?.(); };
+      signal.addEventListener("abort", stop, { once: true });
       try {
-        await session.prompt(text, { expandPromptTemplates: false });
+        const prompting = session.prompt(text, { expandPromptTemplates: false });
+        void prompting.catch(() => undefined);
+        const cancelled = new Promise<never>((_, reject) => { rejectAbort = () => reject(signal.reason ?? new Error("Review cancelled")); });
+        await Promise.race([prompting, cancelled]);
+        signal.throwIfAborted();
         const last = [...session.messages].reverse().find(m => m.role === "assistant");
         if (!last || last.stopReason === "error" || last.stopReason === "aborted" || last.stopReason === "length") throw new Error("Model did not finish normally");
-      } finally { journal.checkpoint(); }
+      } finally { signal.removeEventListener("abort", stop); journal.checkpoint(); }
     },
     abort: () => session.abort(), dispose() { unsubscribe(); session.dispose(); },
     usage() { const t = session.getSessionStats().tokens; return { input: t.input + t.cacheRead + t.cacheWrite, output: t.output, total: t.total }; },

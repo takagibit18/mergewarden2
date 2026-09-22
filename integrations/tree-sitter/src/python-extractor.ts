@@ -15,9 +15,15 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
     if (language.abiVersion !== grammar.abi) throw new Error("Python grammar ABI does not match the checked-in lock");
     const parser = new Parser(); parser.setLanguage(language); return new PythonTreeSitterExtractor(parser);
   }
-  async extract(input: { snapshotId: string; path: string; source: string }): Promise<SyntaxFacts> {
+  async extract(input: { snapshotId: string; path: string; source: string }, limits: { maxFacts?: number; deadline?: number } = {}): Promise<SyntaxFacts> {
     const tree = this.parser.parse(input.source); if (!tree) throw new Error("Tree-sitter did not return a tree");
     const facts: SyntaxFacts = { symbols: [], calls: [], references: [], imports: [], scopes: [], bindings: [], parseComplete: !tree.rootNode.hasError, diagnostics: [] };
+    let visits = 0;
+    const guard = () => {
+      if (++visits % 128 === 0 && limits.deadline !== undefined && performance.now() > limits.deadline) throw new Error("Graph per-file extraction time limit exceeded");
+      const count = facts.symbols.length + facts.calls.length + facts.references.length + facts.imports.length + facts.scopes.length + facts.bindings.length;
+      if (limits.maxFacts !== undefined && count > limits.maxFacts) throw new Error("Graph per-file extraction fact limit exceeded");
+    };
     const field = (n: Node, name: string) => n.childForFieldName(name);
     const source = (n: Node, kind: string, qualifiedName: string, parent?: string): SourceFact => ({
       id: idFor([input.snapshotId, input.path, kind, n.startIndex, n.endIndex, qualifiedName]), snapshotId: input.snapshotId, path: input.path, qualifiedName,
@@ -47,6 +53,7 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
       if (call) facts.calls.push({ ...value, kind: "call" }); else facts.references.push({ ...value, kind: "reference" });
     };
     const walk = (n: Node, scope: SymbolFact, conditional = false, uncertain = false): void => {
+      guard();
       if (n.type === "function_definition" || n.type === "class_definition") {
         const name = field(n, "name"); if (!name) return;
         const kind = n.type === "class_definition" ? "class" : scope.kind === "class" ? "method" : "function";
@@ -116,6 +123,7 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
     };
     try {
       for (const child of tree.rootNode.namedChildren) walk(child, module);
+      guard();
       if (facts.diagnostics.some(d => d.startsWith("global/nonlocal"))) for (const s of facts.scopes) s.opaque = true;
       if (!facts.parseComplete) facts.diagnostics.push("Syntax errors exist; these facts do not cover a complete parse.");
       facts.diagnostics = [...new Set(facts.diagnostics)]; return facts;

@@ -1,5 +1,13 @@
 # 实测记录 · 2026-09-20
 
+## 图稳定性层 · 2026-09-22
+
+工作基线为干净的 `feat/realgolden40-corpus` / `092ba457ad42f28a1bb11afa33b24a02fa66ce1f`；提示词所列 `0dd80b2` 不在本地对象库，本地 `main` 为 `8b170a0`，因此没有回退或覆盖当前两项 Graph harness 后续修正。修改前 `npm run verify` 退出码 0：142 core + 18 Pi + 38 Tree-sitter + 20 RealGolden，三组类型检查、demo、status 均通过；日志保存在 checkout 外 `../mergewarden2-graph-upgrade-baseline-verify.log`。
+
+稳定性层保持原四类关系语义，迁移到 schema v3：分文件 checkpoint、不可变 generation、原子 manifest、ready/partial 分离、预算身份、确定性失败缓存、单 builder、损坏单次隔离、跨 generation 游标拒绝，以及单 review worker/只读句柄复用。取消路径在工具接纳时扣减预算，分别记录 requested/accepted/executed/rejected；deadline 后关闭接纳，并对 Pi abort、工具队列和 Graph worker 做有界清理。V8 old-generation 限制不再表述为进程总内存上限。
+
+修改后完整 `npm run verify` 退出码 0：143 core + 18 Pi + 38 Tree-sitter + 20 RealGolden，0 failed / 0 skipped，三组类型检查、demo、status 均通过。新增故障测试验证完整文件容量部分发布、checkpoint 恢复不重提取、确定性 resolver 容量失败不重复、并发单 builder、损坏 generation 恢复、跨 generation 游标拒绝、冷构建取消后恢复，以及忽略 abort 的 runtime 仍在有界时间交付 cancelled 报告。日志保存在 checkout 外 `../mergewarden2-graph-upgrade-change-a-verify.log`。这一步没有运行付费模型，也不构成 Graph 审查质量证据。
+
 ## Golden r2 修订验证
 
 用户授权 Agent 复核后修订为 `controlled-python-v02-20-r2`。本次先运行完整基线验证（152 passed），修改后 `npm run verify` 为 **101 core + 16 Pi + 38 grammar = 155 passed，0 failed，0 skipped**，三组类型检查、demo/status 通过。新增检查覆盖旧语料字节保留/版本混用拒绝、severity 与源码范围一致性，以及全部 revised base/head 的真实 grammar 解析。20 例均重新构建并核对固定 Git SHA，经真实 SnapshotStore 读取。没有执行被审 Python。

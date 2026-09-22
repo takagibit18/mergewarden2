@@ -4,7 +4,9 @@ export const RESOLVER_VERSION = "python-scopes-2";
 export interface ResolvedGraph { facts: SyntaxFacts[]; relations: RelationFact[] }
 /** Static repository-root imports only. Never searches for same-name symbols globally. */
 export function resolvePython(input: SyntaxFacts[]): ResolvedGraph {
-  const facts = structuredClone(input); const symbols = new Map(facts.flatMap(f => f.symbols).map(s => [s.id, s]));
+  // The resolver owns these deserialized checkpoint objects. Mutating call resolution avoids
+  // cloning the repository-wide fact set at peak memory.
+  const facts = input; const symbols = new Map(facts.flatMap(f => f.symbols).map(s => [s.id, s]));
   const scopes = new Map(facts.flatMap(f => f.scopes).map(s => [s.id, s]));
   const imports = new Map(facts.flatMap(f => f.imports).map(i => [i.id, i]));
   const incomplete = new Set(facts.filter(f => !f.parseComplete).flatMap(f => f.symbols.map(s => s.id)));

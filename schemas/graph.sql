@@ -1,15 +1,31 @@
--- v2: one derived HEAD index per (snapshot, schema, resolver). No source-of-truth data.
+-- v3 generation database. A generation is immutable after publication.
+-- Extraction checkpoints live in a separate staging database and are never queried.
 PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = DELETE;
+PRAGMA synchronous = FULL;
 CREATE TABLE graph_snapshots (
-  snapshot_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL CHECK(schema_version = 2),
-  resolver_version TEXT NOT NULL, parser_version TEXT NOT NULL, revision TEXT NOT NULL CHECK(revision = 'head'),
-  state TEXT NOT NULL CHECK(state IN ('building','ready','incomplete','error')),
-  coverage TEXT NOT NULL, warnings TEXT NOT NULL, content_digest TEXT
+  snapshot_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 3),
+  resolver_version TEXT NOT NULL,
+  parser_version TEXT NOT NULL,
+  revision TEXT NOT NULL CHECK(revision = 'head'),
+  state TEXT NOT NULL CHECK(state IN ('ready','partial')),
+  cache_identity TEXT NOT NULL,
+  generation_id TEXT NOT NULL,
+  coverage TEXT NOT NULL,
+  warnings TEXT NOT NULL,
+  file_count INTEGER NOT NULL,
+  symbol_count INTEGER NOT NULL,
+  site_count INTEGER NOT NULL,
+  relation_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE files (
   snapshot_id TEXT NOT NULL REFERENCES graph_snapshots(snapshot_id), path TEXT NOT NULL,
-  content_sha256 TEXT NOT NULL, parse_status TEXT NOT NULL CHECK(parse_status IN ('complete','incomplete','unsupported')),
-  facts TEXT NOT NULL, PRIMARY KEY(snapshot_id,path)
+  content_sha256 TEXT NOT NULL,
+  parse_status TEXT NOT NULL CHECK(parse_status IN ('complete','incomplete','unsupported','omitted','failed')),
+  facts TEXT,
+  PRIMARY KEY(snapshot_id,path)
 );
 CREATE TABLE symbols (
   snapshot_id TEXT NOT NULL, symbol_id TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL,
