@@ -87,6 +87,20 @@ npm run eval -- --live --output /outside/checkout/live-smoke
 npm run eval -- --live --all --repeats 3 --output /outside/checkout/live-repeat
 ```
 
+实体图 v4 的工程 profile 固定读取清单中 8 个真实 Python 快照及其完整 SHA；它只读取 Git blob，不 checkout、导入或执行目标项目代码。缓存、Graph 状态和 JSON 结果都应放在 checkout 外：
+
+```sh
+node --expose-gc --experimental-strip-types eval/graph-profile.mjs --offline --cache /outside/checkout/repositories --state /outside/checkout/graph-profile-state --output /outside/checkout/graph-profile.json
+```
+
+普通标识符引用消融复用 Change A 提交 `598c9bc` 的旧提取器，并严格使用 profile 实际完成的 core 文件集合。`--legacy-root` 应指向该提交的只读 detached worktree；若依赖没有安装，可让它复用主 checkout 的 `integrations/tree-sitter/node_modules`。输出分别报告旧 `references` facts 的 UTF-8 增量和按旧 schema 物理列估算的保守 SQLite 下界；后者不含 `REFERENCES` 聚合关系行，也不冒充一次真实旧库构建的总大小。
+
+```sh
+git worktree add --detach /outside/checkout/mergewarden-change-a 598c9bc
+node --experimental-strip-types eval/graph-reference-ablation.mjs --legacy-root /outside/checkout/mergewarden-change-a --cache /outside/checkout/repositories --state /outside/checkout/graph-profile-state --profile /outside/checkout/graph-profile.json --output /outside/checkout/graph-reference-ablation.json
+git worktree remove /outside/checkout/mergewarden-change-a
+```
+
 默认 smoke 固定 4 例，可用 `--cases single-zero,cross-key` 选择子集；`--all` 跑 20 例。`--offline` 使用真实 Pi SDK 与刻意提交空 finding 的脚本 provider，token 是合成值，不能作为模型质量/成本证据。`--live` 从 `experiment.json` 指定的环境变量读取密钥，当前固定 bigmodel/glm-5.3-flash、120 秒、40 次工具预算。密钥不进入配置/结果文件。
 
 各臂共享相同 snapshot 与 final_only/source evidence/schema/report delivery。T0 只用 BASE；G0/G1 在同一 BASE 上共享完全相同的中性 navigation policy，差异只限于各自 interface/retrieval 的机械说明。该 policy 说明 untouched context trigger、caller/reference/consumer/dependency 发现、不用结构导航重复确认已读位置，以及失败时回退文本/源码；不强制 Graph 调用。Pi 会附加 cwd，所以 A/B 固定相同仓库外 cwd。每组记录有效 system prompt、thinking level、API、endpoint、maxTokens、包锁 hash，逐对比较。运行前后核对整个引擎、适配器、schema 和 eval 源码摘要；实验途中修改实现会阻止有效比较。重复运行交替组顺序；Graph 缓存可在同 snapshot 后续运行复用，需按 cold/warm 指标解释成本。
@@ -128,7 +142,7 @@ npm run eval:traces -- --output /outside/checkout/live-run --mapping /outside/ch
 
 分析器只读原生 Pi JSONL 的最后活动分支中的 toolCall/toolResult，不采信模型自述，也不改 prompt、finding 协议或源码 evidence。验证报告和 immutable evidence 后，生成 `trace-analysis.json`：每次调用的 ID/序号/原生 entry、状态、逐 finding `discoveryPath` 和可追溯链均保留。分析器源码 hash 与 JSONL hash 一并记录。`--partial` 仅生成明确标记 provisional 的中途分析；不会把未完成实验当成正式结果。schema 见 `schemas/trace-analysis.schema.json`。
 
-- `graph_assisted`：已解析的 incoming CALLS/REFERENCES 返回此前未被文本工具暴露的 caller 路径；收到该结果后，模型另行发出 read_source 覆盖其调用位置；成功接受的 finding evidence 包含同一 snapshot/head 的该位置与实际读取的 SHA。
+- `graph_assisted`：已解析的 incoming CALLS 返回此前未被文本工具暴露的 caller 路径；收到该结果后，模型另行发出 read_source 覆盖其调用位置；成功接受的 finding evidence 包含同一 snapshot/head 的该位置与实际读取的 SHA。schema v4 不再建立普通 REFERENCES；旧实验结果仍按各自冻结实现解释。
 - `text_only`：最终证据在 Graph 之前已读，或没有观测到相关 Graph 返回位置引出这些证据。
 - `ambiguous`：相关 Graph 与文本发现重叠、关系不确定、同一批次提前发出源码读取，或 trace/成功提交/源码证据链不足。Graph 查询失败不自动转成 text_only。
 

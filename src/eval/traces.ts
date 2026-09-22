@@ -87,7 +87,7 @@ export interface AttributionChain {
 }
 interface CallerLocation { edgeId: string; callerId: string; path: string; startLine: number; endLine: number; resolution: string }
 function callerLocations(call: ToolCall, snapshotId: string): CallerLocation[] {
-  if (call.name !== "graph_neighbors" || !ok(call, snapshotId) || call.args.direction !== "incoming" || !["CALLS", "REFERENCES"].includes(String(call.args.relation))) return [];
+  if (call.name !== "graph_neighbors" || !ok(call, snapshotId) || call.args.direction !== "incoming" || call.args.relation !== "CALLS") return [];
   return items(call).filter(e => e.snapshotId === snapshotId && typeof e.id === "string" && typeof e.fromId === "string" && e.toId === call.args.symbolId && e.relation === call.args.relation && ["resolved_scoped", "resolved_import_alias"].includes(String(e.resolution)) && typeof e.sourcePath === "string" && Number.isInteger(e.sourceLine) && Number(e.sourceLine) >= 1 && Number.isInteger(e.sourceEndLine) && Number(e.sourceEndLine) >= Number(e.sourceLine))
     .map(e => ({ edgeId: String(e.id), callerId: String(e.fromId), path: String(e.sourcePath), startLine: Number(e.sourceLine), endLine: Number(e.sourceEndLine), resolution: String(e.resolution) }));
 }
@@ -150,7 +150,7 @@ export function analyzeTrace(input: { runKey: string; snapshotId: string; findin
   const graphChars = graphs.reduce((n, c) => n + [...c.resultText].length, 0);
   const count = (name: string) => calls.filter(c => c.name === name).length;
   const numerator = new Set(neighborLinks.map(l => l.neighborCallId)).size;
-  return { schemaVersion: 1, attributionVersion: "trace-attribution-1", runKey: input.runKey, snapshotId, traceSha256: trace.sha256, traceIssues: trace.issues, ignoredBranchEntries: trace.ignoredBranchEntries, usage: trace.usage,
+  return { schemaVersion: 1, attributionVersion: "trace-attribution-2", runKey: input.runKey, snapshotId, traceSha256: trace.sha256, traceIssues: trace.issues, ignoredBranchEntries: trace.ignoredBranchEntries, usage: trace.usage,
     metrics: { toolCalls: calls.length, graphToolCalls: graphs.length, graphResults: graphs.filter(g => g.resultEvent !== undefined).length, firstGraphToolOrdinal: graphs[0]?.ordinal ?? null,
       lookupCalls: lookups.length, lookupSuccessfulCalls: lookups.filter(c => ok(c, snapshotId)).length, lookupHits: hits.length,
       lookupSuccessRate: lookups.length ? lookups.filter(c => ok(c, snapshotId)).length / lookups.length : null, lookupHitRate: lookups.length ? hits.length / lookups.length : null,

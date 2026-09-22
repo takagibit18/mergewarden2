@@ -1,4 +1,6 @@
-# 当前实现状态 · 2026-09-21
+# 当前实现状态 · 2026-09-22
+
+Python 图已升级为 schema v4 的 LocAgent 风格实体图：directory/file/class/function 与 CONTAINS/IMPORTS/CALLS/INHERITS；method 作为 function 子类，普通名称引用不建图。默认 core 覆盖 changed 与生产 Python，all 为显式独立 generation。两遍流式 resolver、逐文件关系 checkpoint、聚合关系和无 facts/payload 的紧凑最终库已落地。8 个固定真实快照的 core 为 7 ready + 1 预算内 partial；最终完整验证 234/234 通过，规模、性能、分层和引用消融数据见 VALIDATION。该升级没有重新运行付费审查，也不构成质量增益证据。
 
 RealGolden 三臂 harness 已分离“审查完成”与“结构导航可用性”：G0/G1 共享同一中性 `NAVIGATION_POLICY_PROMPT`，各自 capability 只说明工具名、调用关系和机械语义；T0 不接收该 system policy 且仍只暴露四个文本/提交工具。Graph/retrieval 错误保留显式 tool error/warning、`metrics.navigation` 诊断和报告限制说明，但不再单独 poison 已满足差异覆盖、源码证据、最终提交与交付门槛的业务完成态。正式 RealGolden 锁固定 `first_attempt`，reserve 保留 operational retry；盲审包将 arm、run key、Graph 调用与 trace 保留在私有映射中，不展示给裁定者。
 
@@ -15,7 +17,7 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 | 原生日志 | 独占空文件经公开 SessionManager.open 初始化；首条回复前持久化；fsync 和写入故障检查 | 不宣称数据库级事务或 exactly-once |
 | 报告和恢复 | JSON/Markdown 原子替换；交付清单最后写入；历史校验；原快照新 run | 中断模型会话不续接；运行中硬退出可能留锁 |
 | CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
-| Python 图 | 固定 grammar、模块/作用域/import facts、保守 resolver、可恢复 checkpoint、不可变 generation 原子发布、失败缓存、单 review 可终止 worker | 只索引 head；动态 receiver、全类型推断及跨 snapshot 增量更新不支持 |
+| Python 图 | 固定 grammar；directory/file/class/function；CONTAINS/IMPORTS/CALLS/INHERITS；core/all 分层；两遍流式保守 resolver；可恢复 checkpoint、紧凑不可变 generation 原子发布、失败缓存、单 review 可终止 worker | 只索引 head；动态 receiver、全类型推断、高级 import 根及跨 snapshot 增量更新不支持 |
 | VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
 | 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；逐例语义 mapping 与 native trace 派生归因 | r2 未执行全 20-case 新对照；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
 
@@ -23,9 +25,9 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 
 持久化故障会使本次 run 无法确认交付。历史只把清单及产物 hash 一致的记录当作已交付；`running` 仅是最后写入状态，不代表进程仍活跃。`doctor` 检查锁拥有者，`unlock` 仅清理已退出进程的锁。临时文件可能在硬退出后遗留；不自动删除历史快照和报告。
 
-Graph contract 不含 Tree-sitter CST 类型。稳定性层暂时保持 CONTAINS/IMPORTS/REFERENCES/CALLS；provenance 保存源码范围、site id、snapshot 和 resolver 版本。候选调用只保留 candidate target 与 REFERENCES，不生成已确认 CALLS。发布需要事务完成、外键、计数与 SQLite quick-check；热查询固定在同一已验证 generation，不再 `SELECT *` 全库序列化摘要。解析、文件或容量有缺口的 generation 只能是 partial，并在查询状态与覆盖摘要中继续显式暴露。
+Graph contract 不含 Tree-sitter CST 类型。实体类型固定为 directory/file/class/function，method 用 `functionKind` 区分；关系固定为 CONTAINS/IMPORTS/CALLS/INHERITS。普通引用索引为 `not_built`，文本引用由 `search_text` 提供。provenance 保存源码范围、site id、snapshot 和 resolver 版本；candidate/unresolved call 或 inheritance 只保留 dependency site，不生成可遍历边。禁止按全仓同名回退。发布需要事务完成、外键、计数、源码范围与 SQLite quick-check；热查询固定在同一已验证 generation。解析、文件或容量有缺口的 generation 只能是 partial，并在查询状态与覆盖摘要中继续显式暴露。
 
-默认构图预算为 200,000 facts、400,000 relations，单文件另有事实数和时间上限；预算属于缓存身份。完整文件提取结果逐文件真实提交到 staging，只有校验后的不可变 generation 可查询；容量不足可以发布范围明确的 partial。工作线程的 512 MiB 参数只限制 V8 old generation，不代表进程 RSS、WASM 或 ArrayBuffer 的总内存硬上限。每页最多 100 项/32 KiB，warnings 有界。一个 review 复用同一 worker、只读 SQLite 句柄及检索索引；损坏 generation 单次隔离后从 checkpoint 恢复。
+默认构图预算为 250,000 facts、400,000 relations，单文件另有 25,000 facts / 15 秒上限；预算与 core/all 范围都属于缓存身份。250,000 是在首轮固定快照测量后，为完整覆盖旧 SymPy production core 做的有界调整；现代 SymPy 源码明确标注自动生成的 `integrals/rubi/rules` 精确路径由范围策略 v2 归入 generated，规则不泛化到所有 `rules/` 目录。完整文件提取和关系解析分别逐文件真实提交到 staging；最终 schema v4 仅保存文件元数据、实体、dependency site、聚合 relation 与 relation site，不保存整文件 facts/payload。只有校验后的不可变 generation 可查询；容量不足可以发布范围明确的 partial。工作线程的 512 MiB 参数只限制 V8 old generation，不代表进程 RSS、WASM 或 ArrayBuffer 的总内存硬上限。每页最多 100 项/32 KiB，warnings 有界。一个 review 复用同一 worker、只读 SQLite 句柄及检索索引；损坏 generation 单次隔离后从 checkpoint 恢复。
 
 审查 deadline、显式取消和工具预算会关闭新工具接纳，预算在接纳时原子扣减；manifest 分别记录请求、接纳、执行和拒绝数量。runtime abort、工具队列与 worker 清理均有界，取消后不再启动新工具；本地中断不证明供应商已经停止远端计费。
 

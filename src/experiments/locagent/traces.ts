@@ -45,7 +45,7 @@ export function analyzeRetrieval(input:{runKey:string;snapshotId:string;findings
   if(!calls.some(c=>['search_entity','traverse_graph'].includes(c.name)))return legacy.findings.find(p=>p.predictionId===f.id)!;
   const submission=calls.find(c=>c.name==='submit_review'&&!c.isError&&c.response?.accepted===true&&rows(c.args.findings).some(p=>canonical(p)===canonical(f)));
   const reads=f.evidence.map(e=>calls.find(c=>c.name==='read_source'&&ok(c)&&end(c)<(submission?.callEvent??-1)&&['snapshotId','revision','path','startLine','endLine','contentSha256'].every(k=>c.response?.[k]===e[k as keyof typeof e])));
-  const chains=sourceLinks.filter(l=>l.strictNovel&&l.location.via?.direction==='upstream'&&l.location.via.pathResolved&&['CALLS','REFERENCES'].includes(l.location.via.relation)&&reads.some(r=>r?.id===l.sourceCallId));
+  const chains=sourceLinks.filter(l=>l.strictNovel&&l.location.via?.direction==='upstream'&&l.location.via.pathResolved&&l.location.via.relation==='CALLS'&&reads.some(r=>r?.id===l.sourceCallId));
   const valid=!trace.issues.length&&submission&&reads.length&&reads.every(Boolean);
   const relevant=graphs.some(g=>ok(g)&&rows(g.response?.items).some(i=>f.evidence.some(e=>e.path===i.path||e.path===i.sourcePath))&&g.callEvent<(submission?.callEvent??0));
   const before=reads.every(r=>r&&end(r)<(graphs[0]?.callEvent??Infinity));

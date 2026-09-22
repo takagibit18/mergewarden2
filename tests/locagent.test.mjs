@@ -12,10 +12,10 @@ test('LocAgent pinned library differential vectors: tokenizer, BM25 and fuzzy',(
 });
 function fixture(){
  const symbols=['a','b','c','d','x'].map((id,i)=>({id,snapshotId:'snap',path:`${id}.py`,qualifiedName:`${id}.${i===4?'a':id}`,name:i===4?'a':id,kind:'function',startLine:1,endLine:2,startColumn:0,endColumn:0}));
- symbols.push({id:'m',snapshotId:'snap',path:'auth/token.py',qualifiedName:'auth.token',name:'token',kind:'module',startLine:1,endLine:2,startColumn:0,endColumn:0});
+ symbols.push({id:'m',snapshotId:'snap',path:'auth/token.py',qualifiedName:'auth.token',name:'token.py',kind:'file',startLine:1,endLine:2,startColumn:0,endColumn:0});
  const relations=[['a','b'],['b','c'],['c','a'],['d','a'],['x','b']].map(([fromId,toId],i)=>({id:`e${i}`,snapshotId:'snap',fromId,toId,relation:'CALLS',resolution:i===4?'candidate':'resolved_scoped',sourcePath:`${fromId}.py`,sourceLine:2,sourceEndLine:2,sourceColumn:0,sourceEndColumn:5,siteId:`s${i}`,resolverVersion:'frozen'}));
  relations.push({...relations[0],id:'duplicate'});
- return {snapshotId:'snap',symbols,relations,sources:Object.fromEntries(symbols.map(s=>[s.path,`def ${s.name}():\n return "authentication zebra"\n`])),coverage:{eligibleFiles:6,indexedFiles:6,parseIncompleteFiles:0,unsupportedFiles:0,resolvedCalls:4,candidateCalls:1,unresolvedCalls:1},warnings:[]};
+ return {snapshotId:'snap',generationId:'generation-fixture',generationState:'ready',graphScope:'core',symbols,relations,sources:Object.fromEntries(symbols.map(s=>[s.path,`def ${s.name}():\n return "authentication zebra"\n`])),coverage:{eligibleFiles:6,indexedFiles:6,parseIncompleteFiles:0,unsupportedFiles:0,resolvedCalls:4,candidateCalls:1,unresolvedCalls:1},warnings:[]};
 }
 const walk=(overrides={})=>({startEntities:['a'],direction:'downstream',maxHops:2,entityTypeFilter:[],relationTypeFilter:[],maxNodes:100,...overrides});
 test('exact IDs, qualified names, duplicate names and bounded adaptive search',()=>{
@@ -45,7 +45,7 @@ test('controlled DFS: one/two/N hops, directions, cycles, deduplication and filt
  assert.equal(r.traverse(walk({entityTypeFilter:['class']})).items.length,1);
  assert.equal(r.traverse(walk({maxNodes:2})).truncated,true);
  assert.equal(r.traverse(walk({maxBytes:2048})).truncated,true);
- assert.equal(r.traverse(walk({startEntities:['b'],direction:'upstream',maxHops:1})).items.find(i=>i.entityId==='x').discoveredVia.pathResolved,false);
+ assert.equal(r.traverse(walk({startEntities:['b'],direction:'upstream',maxHops:1})).items.some(i=>i.entityId==='x'),false);
  assert.equal(new LocAgentRetrieval(fixture(),{maxHops:1}).traverse(walk()).maxHops,1);
 });
 test('snapshot boundary, incomplete coverage, output caps and disabled tools',()=>{
@@ -68,4 +68,16 @@ test('diagnostic-heavy unknown-root responses obey requested byte cap',()=>{
  const result=new LocAgentRetrieval(data).traverse(walk({startEntities:['unknown'],maxBytes:2048}));
  assert.ok(Buffer.byteLength(JSON.stringify(result))<=2048);assert.equal(result.truncated,true);
  assert.equal(result.coverage.indexedFiles,6);
+});
+test('shared file chunks do not duplicate source per entity and content failure degrades independently',()=>{
+ const data=fixture();data.symbols.push({id:'nested',snapshotId:'snap',path:'a.py',qualifiedName:'a.nested',name:'nested',kind:'function',startLine:1,endLine:2,startColumn:0,endColumn:0});
+ const normal=new LocAgentRetrieval(data);assert.equal(normal.chunks.length,Object.keys(data.sources).length);assert.equal(normal.search({searchTerms:['nested'],topK:2}).items[0].entityId,'nested');
+ const degraded=new LocAgentRetrieval(data,{contentIndexByteLimit:1,fuzzyEnabled:false});assert.equal(degraded.search({searchTerms:['a.a'],topK:2}).items[0].entityId,'a');assert.equal(degraded.traverse(walk({maxHops:1})).items.length,2);
+ const missing=degraded.search({searchTerms:['zebra'],topK:2});assert.equal(missing.items.length,0);assert.ok(missing.warnings.some(w=>w.includes('Content retrieval index is unavailable')));
+});
+test('traversal reaches a node first by a long path then still expands its shorter path',()=>{
+ const ids=['a','b','c','d','e'];const symbols=ids.map(id=>({id,snapshotId:'snap',path:`${id}.py`,qualifiedName:id,name:id,kind:'function',startLine:1,endLine:1,startColumn:0,endColumn:1}));
+ const pairs=[['a','b'],['b','c'],['c','d'],['a','d'],['d','e'],['a','c']];const relations=pairs.map(([fromId,toId],i)=>({id:`r${i}`,snapshotId:'snap',fromId,toId,relation:'CALLS',resolution:'resolved_scoped',sourcePath:`${fromId}.py`,sourceLine:1,sourceEndLine:1,sourceColumn:0,sourceEndColumn:1,siteId:`site${i}`,resolverVersion:'fixture'}));
+ const data={snapshotId:'snap',generationId:'g',generationState:'ready',graphScope:'core',symbols,relations,sources:Object.fromEntries(ids.map(id=>[`${id}.py`,id])),coverage:{eligibleFiles:5,indexedFiles:5,parseIncompleteFiles:0,unsupportedFiles:0},warnings:[]};
+ const result=new LocAgentRetrieval(data).traverse(walk({maxHops:3}));assert.ok(result.items.some(item=>item.entityId==='e'));assert.equal(new Set(result.edges.map(edge=>`${edge.fromId}:${edge.toId}`)).size,result.edges.length);
 });

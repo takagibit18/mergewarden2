@@ -29,6 +29,10 @@ export class SparseIndex {
     }
     return [...scores].filter(([,score])=>score>0).map(([index,score])=>({index,score})).sort((a,b)=>b.score-a.score||a.index-b.index).slice(0,topK);
   }
+  stats(): { documents: number; terms: number; postings: number; tokens: number } {
+    let postings=0;for(const row of this.postings.values())postings+=row.size;
+    return {documents:this.lengths.length,terms:this.postings.size,postings,tokens:this.lengths.reduce((sum,value)=>sum+value,0)};
+  }
 }
 // RapidFuzz token_set_ratio uses normalized Indel similarity (LCS), NOT Levenshtein.
 function ratio(a: string, b: string): number {

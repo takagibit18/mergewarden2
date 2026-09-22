@@ -16,3 +16,11 @@ CREATE TABLE IF NOT EXISTS file_checkpoints (
   committed_at TEXT NOT NULL, PRIMARY KEY(cache_identity,path)
 );
 CREATE INDEX IF NOT EXISTS checkpoint_status ON file_checkpoints(cache_identity,status,path);
+CREATE TABLE IF NOT EXISTS resolution_checkpoints (
+  cache_identity TEXT NOT NULL REFERENCES graph_builds(cache_identity), path TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL, resolver_version TEXT NOT NULL,
+  site_count INTEGER NOT NULL, relation_count INTEGER NOT NULL,
+  sites TEXT NOT NULL, relations TEXT NOT NULL, call_counts TEXT NOT NULL,
+  committed_at TEXT NOT NULL, PRIMARY KEY(cache_identity,path)
+);
+CREATE INDEX IF NOT EXISTS resolution_checkpoint_path ON resolution_checkpoints(cache_identity,path);

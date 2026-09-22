@@ -8,6 +8,106 @@
 
 修改后完整 `npm run verify` 退出码 0：143 core + 18 Pi + 38 Tree-sitter + 20 RealGolden，0 failed / 0 skipped，三组类型检查、demo、status 均通过。新增故障测试验证完整文件容量部分发布、checkpoint 恢复不重提取、确定性 resolver 容量失败不重复、并发单 builder、损坏 generation 恢复、跨 generation 游标拒绝、冷构建取消后恢复，以及忽略 abort 的 runtime 仍在有界时间交付 cancelled 报告。日志保存在 checkout 外 `../mergewarden2-graph-upgrade-change-a-verify.log`。这一步没有运行付费模型，也不构成 Graph 审查质量证据。
 
+## 实体图 v4 与真实快照测量 · 2026-09-22
+
+Change B 在 Change A 提交 `598c9bc` 上将图升级为 schema v4 / resolver `python-entities-streaming-5` / scope policy `python-core-scope-2`。实体固定为 directory/file/class/function，method 由 `functionKind` 区分；可遍历关系固定为 CONTAINS/IMPORTS/CALLS/INHERITS。普通标识符读取不再由提取器生成，也不进入 checkpoint 或最终库；绑定、遮蔽、重新赋值、import 和作用域事实仍用于保守解析。最终 generation 只保存文件目录、实体、dependency site、聚合关系和逐 site 来源，不保存整文件 facts/payload。设计、来源与 faithful/adapted/not-used 差异分别见 [ADR-0014](adr/0014.md)、[来源](SOURCES.md) 和 `eval/locagent/entity-graph-v4-fidelity.json`。
+
+LocAgent 对照固定在官方提交 `4935b557326c154bad8e8dcf3747cc8d32d1f387`（Apache-2.0）。受控 5 文件样例的官方分析器输出已单独冻结：目录/文件/类/函数、包含、明确 import、`app.run → helper` 和多继承正常映射；invokes→CALLS 及 `Child.__init__` 的方法归属为明确适配；上游对参数遮蔽和 wildcard 名称产生的两条启发式调用边被本项目保守拒绝；`pendingDefect=[]`。差分测试只执行经检查的参考分析器来解析惰性样例，没有导入或执行被审项目代码。
+
+### 固定输入与口径
+
+profile 从既有任务清单读取以下完整 SHA，不使用最新分支，也不读取 hidden gold、fix 或模型结果。HEAD 图使用 reviewed SHA；表中同时保留 base 以绑定原任务。
+
+| 快照 | case | base SHA | reviewed SHA |
+|---|---|---|---|
+| Requests | RG2-9a9c0b930264 | `317f64a11f56d89119baf5db3af65c0343464bc1` | `35ec6bb613669dbbbba2afcc7aac4e467a5b4db8` |
+| pytest | RG2-36fc7cf7f8d0 | `15ac0349b2c7d8dc48fe2e25a1b4fa47c9fda25c` | `0bc9ffcc8782fd126d0a9ce95ce130d1d760d2cb` |
+| Certbot | RG-C035 | `c96420dbe0b9c6950b4fd862cd5a43e565b14834` | `2584184819410ce0eedf8a72a126bd3db5162fd3` |
+| NetworkX | RG-C008 | `2b01a30d6967cc94a0f8caca2252bce7817b2b1c` | `b446ef128ee25c420c6c1e8707e24cc1dfff6f94` |
+| xarray | RG2-8a20ce3c59fd | `8389fe6e8c86a04d57f25fe137b6f2db77065523` | `5868aed40b520e87bef501361bdc2beb7eb0b26c` |
+| scikit-learn | RG2-1f682ac2d7bb | `d3d09c383cf25f987e54c063c546b3bfeac971cb` | `770204c63d978ae093c355004de26f2e284066dd` |
+| SymPy 旧快照 | RG2-7b899db872f4 | `84d6ea85c2d07b4cad614b1257af6ed36cff9524` | `6c94701dd4e05894d54836ac35f539edce82f111` |
+| SymPy 现代快照 | RG2-ae0ac5357175 | `37c6d80a6080e8f72f33565fea1956c3ff28dfcf` | `ffe040d815fe0738e298c6336e3fd14c5ddb98be` |
+
+最终测量在 Windows NT 10.0.26200、Node 24.12.0 / npm 11.6.2 上顺序运行，默认预算为 250,000 extraction facts、400,000 relations、单文件 25,000 facts / 15 秒。首轮固定快照预检表明 200,000 facts 会截断两个 SymPy core；随后将普通引用移出提取器，并用公开范围策略 v2 精确排除源码头声明自动生成的现代 SymPy `sympy/integrals/rubi/rules/`，再把默认总量一次性调到 250,000 并更换缓存身份。普通 `rules/` 目录不受该例外影响；这不是按已知答案裁剪。最终旧 SymPy core 完整，现代 SymPy 仍在安全上限处发布可信 partial，没有继续抬高上限或放宽解析。
+
+“保留行”是最终库的 entities + dependency sites + aggregate relations + relation sites；它与 extraction facts 是不同口径。所有容量停止都以完整文件为原子单位。
+
+| core 快照 | 状态 | 已索引/计划文件 | extraction facts | 保留行 | 实体 | 调用位置 | 聚合关系 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Requests | ready | 38/38 | 5,356 | 4,047 | 459 | 1,471 | 818 |
+| pytest | ready | 76/76 | 24,913 | 16,152 | 2,056 | 7,069 | 2,578 |
+| Certbot | ready | 246/246 | 30,695 | 20,561 | 2,577 | 9,235 | 3,161 |
+| NetworkX | ready | 284/284 | 44,341 | 27,893 | 2,548 | 15,126 | 4,160 |
+| xarray | ready | 99/99 | 37,922 | 27,002 | 2,709 | 11,192 | 5,452 |
+| scikit-learn | ready | 288/288 | 73,432 | 50,782 | 4,383 | 22,262 | 9,497 |
+| SymPy 旧快照 | ready | 561/561 | 208,673 | 155,170 | 13,770 | 67,108 | 29,451 |
+| SymPy 现代快照 | partial | 530/671 | 249,165 | 190,634 | 17,408 | 86,647 | 34,240 |
+
+现代 SymPy 的 141 个未完成 core 文件全部明确记为 omitted production；changed 文件为 1/1 已纳入。停止原因是 `Graph fact budget reached before sympy/printing/str.py`。其全仓 1,308 个 Python 文件中，core 另明确排除 555 test、34 example、29 benchmark、19 source-declared generated、0 vendor。其余七个 core 没有省略计划文件。
+
+### 存储、查询与观测内存
+
+MiB 均为 1,048,576 bytes。generation 是可查询最终库，checkpoint 是不可查询、可恢复的提取/关系 staging；“content 文档”是 G1 共享的非重叠文件片段正文总量，不是持久化数据库大小。内容索引还包含 sparse postings，完整 documents/terms/postings/tokens 统计在原始 JSON 中。冷构建从空的最终 profile state 开始；首次打开包含不可变 generation 身份、计数、foreign-key 和 SQLite quick-check；hot p95 是同一只读句柄连续 25 次精确 lookup。
+
+| core 快照 | generation MiB | checkpoint MiB | content 文档 MiB / 建索引 ms | 冷构建 s | 首次打开 ms | hot p95 ms | 峰值 RSS / heap / external MiB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Requests | 3.27 | 3.10 | 0.22 / 192.4 | 0.546 | 29.4 | 0.8 | 99.7 / 22.5 / 41.6 |
+| pytest | 12.55 | 13.14 | 1.05 / 858.0 | 2.243 | 99.6 | 1.3 | 156.7 / 43.8 / 48.2 |
+| Certbot | 16.64 | 17.86 | 1.71 / 1,152.2 | 3.061 | 111.3 | 1.3 | 183.9 / 69.1 / 48.2 |
+| NetworkX | 22.28 | 25.03 | 3.13 / 1,781.8 | 4.263 | 192.9 | 1.6 | 224.6 / 65.6 / 49.4 |
+| xarray | 21.21 | 20.68 | 2.16 / 1,184.1 | 3.540 | 152.6 | 1.4 | 313.4 / 84.0 / 54.6 |
+| scikit-learn | 40.81 | 42.14 | 4.70 / 2,882.7 | 10.614 | 306.6 | 3.8 | 336.5 / 103.1 / 62.6 |
+| SymPy 旧快照 | 122.08 | 120.32 | 8.38 / 4,693.1 | 356.926 | 1,040.8 | 124.9 | 382.2 / 209.1 / 66.8 |
+| SymPy 现代快照 | 151.07 | 150.20 | 9.03 / 6,457.6 | 560.137 | 1,430.3 | 167.2 | 485.7 / 265.0 / 70.5 |
+
+内存值来自同一 Node 进程顺序跑 8 个快照时每 25 ms 的进程级采样，不是隔离 benchmark 或硬上限；前序 V8/SQLite/WASM 状态、GC 时点和文件缓存会影响后续值。原始 JSON另存每次 peak/end 的 RSS、heapUsed、external、ArrayBuffers，以及内容源加载/索引前后值；个别增量因 GC 可为负，不能解释成索引释放了固定内存。现代 SymPy 的显式 all 构建期间实际观察到约 529.4 MiB RSS，再次证明 512 MiB old-generation 参数不等于整个进程、WASM 或 ArrayBuffer 的总内存限制。大型库的最终关系/位置写入使两份 SymPy 的冷构建达到数分钟，是当前明确瓶颈，不包装成低延迟结果。
+
+### core 与显式 all 分层（独立变化）
+
+下表只展示从默认 core 到独立 `scope=all` generation 的增量，因此不把普通引用移除的收益算进文件分层。Requests all 虽完成 42/42，旧语法测试文件 `tests/test_requests_async.py` 存在 parse error，所以状态为 partial；旧 SymPy all 在 `sympy/diffgeom/tests/test_class_structure.py` 前达到预算。现代 SymPy core 已用满预算，all 因相同 changed→production→supplemental 顺序没有再加入补充文件。
+
+| 快照 | all 状态/文件 | +文件 | +facts | +实体 | +dependency sites | +聚合关系 | +generation / checkpoint MiB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Requests | partial 42/42 | 4 | 435 | 37 | 207 | 59 | 0.30 / 0.32 |
+| pytest | ready 244/244 | 168 | 35,633 | 3,677 | 13,520 | 4,034 | 20.06 / 20.19 |
+| Certbot | ready 362/362 | 116 | 35,681 | 3,075 | 15,323 | 3,267 | 19.79 / 21.79 |
+| NetworkX | ready 631/631 | 347 | 63,347 | 4,966 | 29,699 | 6,146 | 39.05 / 42.88 |
+| xarray | ready 165/165 | 66 | 62,166 | 3,451 | 31,754 | 9,119 | 46.96 / 47.16 |
+| scikit-learn | ready 742/742 | 454 | 98,537 | 4,217 | 51,408 | 13,114 | 69.04 / 74.06 |
+| SymPy 旧快照 | partial 684/1,013 | 123 | 41,325 | 2,250 | 26,702 | 5,693 | 35.34 / 36.29 |
+| SymPy 现代快照 | partial 530/1,308 | 0 | 0 | 0 | 0 | 0 | 0 / 0 |
+
+### 普通 REFERENCES 移除消融（独立变化）
+
+另用 Change A `598c9bc` 的旧提取器，对最终 v4 core **实际完成的同一文件集合**重新提取 ordinary `references`，不运行目标代码。保守存储下界 = 同一文件 facts JSON 中 references 的 UTF-8 增量 + 旧 schema v3 `sites` 表实际 SQLite 增量；它排除了 REFERENCES 关系行和与其他表的页面交互，所以不是旧库总大小，也不是文件分层收益。
+
+| 快照 | core 文件 | 旧 ordinary reference sites | 保守存储下界 MiB |
+|---|---:|---:|---:|
+| Requests | 38 | 2,688 | 4.17 |
+| pytest | 76 | 17,475 | 26.14 |
+| Certbot | 246 | 20,991 | 34.64 |
+| NetworkX | 284 | 32,218 | 51.73 |
+| xarray | 99 | 27,822 | 41.44 |
+| scikit-learn | 288 | 49,495 | 79.47 |
+| SymPy 旧快照 | 561 | 172,947 | 261.12 |
+| SymPy 现代快照 | 530 | 181,891 | 280.39 |
+
+### 关键关系保真与保守断边
+
+- xarray 确定 CALLS 路径仍存在：`xarray.core.computation.where → apply_ufunc`（`xarray/core/computation.py:1835`, resolved_scoped）→ `apply_dataset_vfunc`（`:1167`, resolved_scoped）→ `xarray.core.merge.merge_attrs`（`:471`, resolved_import_alias），3 hops。
+- scikit-learn 明确调用仍存在：`sklearn.multiclass.OneVsOneClassifier.fit → sklearn.utils.multiclass.check_classification_targets`，`sklearn/multiclass.py:494`，resolved_import_alias。
+- 清楚的继承边仍存在：`sklearn.naive_bayes.ComplementNB → sklearn.naive_bayes.BaseDiscreteNB`，`sklearn/naive_bayes.py:735`，resolved_scoped，父类声明顺序 0。
+- 旧 SymPy 的 `sympy.simplify.simplify.ratsimpmodprime` 在 `sympy/simplify/simplify.py:933` 调用 `solve`，但根 `sympy` 包通过 wildcard 重导出 solver 名称。该位置被保留为 dependency site，结果为 `unresolved / module_member_unavailable`，因此 `ratsimpmodprime → solve` 路径为空。没有为通过验收而做全仓同名补边。
+
+### 故障注入与完整验证
+
+新增测试覆盖：完整文件容量 partial 与明确 omitted 范围；提取和关系 checkpoint 分别恢复且不重复已完成工作；确定性 relation 容量失败缓存；resolver 失败不把 staging 暴露为图且保留上一 generation；模拟 ENOSPC 记录 transient 原因、删除候选库并零重提取恢复；单缓存身份只有一个 builder；core/all generation 相互独立；损坏、版本、parser、coverage 和缺边库有界隔离；跨 generation cursor 拒绝；冷构建取消后可恢复。绑定/遮蔽、循环/通配 import、单/多/别名继承、动态父类、`__init__` 归属、partial 中缺失候选不升级确定边均有真实 grammar 测试。G1 另验证共享文件片段、内容索引单独降级、循环/菱形去重和先长后短路径仍能展开。trace attribution 升为 `trace-attribution-2`，新语义只将确定 incoming CALLS 计作 caller 发现；历史产物保留原版本，不改写旧锁。
+
+Change B 最终完整 `npm run verify` 退出码 0：**147 core + 18 Pi + 49 Tree-sitter + 20 RealGolden = 234 passed，0 failed，0 skipped**；核心、Pi、Tree-sitter 三组类型检查以及 demo/status 全部通过。日志在 checkout 外 `../mergewarden2-graph-upgrade-change-b-verify.log`。第一次完整运行在 Pi Stage B 的中性工具描述契约处失败：更新后的 `traverse_graph` 说明漏掉“untouched/relevant code”字样；工具执行本身未失败。补回不带强制引导的能力说明后，单项和从头完整验证均通过；首次失败日志保留为 `../mergewarden2-graph-upgrade-change-b-first-failure.log`，没有用重跑覆盖证据。
+
+最终机器可读产物位于 checkout 外：`../mergewarden2-graph-v4-final-measurements.json`、`../mergewarden2-graph-v4-final-reference-ablation.json`；构建状态与 generation 位于 `../.mergewarden2-graph-profile-v4-final/`。脚本和复现命令见 `eval/graph-profile.mjs`、`eval/graph-reference-ablation.mjs` 与 `eval/README.md`。这些数据证明范围、容量、恢复和静态关系口径，不证明 Graph 提高审查质量；本轮没有运行付费模型、RealGolden40 正式 A/B 或 reserve。
+
 ## Golden r2 修订验证
 
 用户授权 Agent 复核后修订为 `controlled-python-v02-20-r2`。本次先运行完整基线验证（152 passed），修改后 `npm run verify` 为 **101 core + 16 Pi + 38 grammar = 155 passed，0 failed，0 skipped**，三组类型检查、demo/status 通过。新增检查覆盖旧语料字节保留/版本混用拒绝、severity 与源码范围一致性，以及全部 revised base/head 的真实 grammar 解析。20 例均重新构建并核对固定 Git SHA，经真实 SnapshotStore 读取。没有执行被审 Python。

@@ -56,6 +56,18 @@ https://github.com/alibaba/open-code-review/tree/a003b9341a65130b024829101ea3549
 
 前两轮源码讨论参照。只借鉴引擎与薄客户端分层，不复制其实现。
 
+## [S10] LocAgent 论文与固定源码
+
+论文：https://aclanthology.org/2025.acl-long.426/
+
+正文：https://arxiv.org/html/2503.09089v2
+
+源码：https://github.com/gersteinlab/LocAgent/tree/4935b557326c154bad8e8dcf3747cc8d32d1f387
+
+许可：https://github.com/gersteinlab/LocAgent/blob/4935b557326c154bad8e8dcf3747cc8d32d1f387/LICENSE （Apache License 2.0）
+
+本次核对 directory/file/class/function 层级、contains/imports/invokes/inherits 关系、实体搜索和多跳遍历。MergeWarden 未复制其图构建代码：对固定机制做适配，并保留不可变快照、Tree-sitter、保守唯一解析、源码证据、资源边界和可恢复发布。逐项 faithful/adapted/not used 状态及实现证据见 `eval/locagent/entity-graph-v4-fidelity.json`；schema v4 决策见 ADR-0014。
+
 ## 本次仓库搭建的版本固定
 
 已从官方 npm registry 安装 Pi coding-agent 0.84.1、web-tree-sitter 0.27.0 和 tree-sitter-python 0.25.0，并提交真实 lockfile。Pi 行为以安装包源码和 smoke 为准；grammar 来源、commit、ABI 和 SHA-256 见 integrations/tree-sitter/grammars/python.lock.json。前述正文保留骨架生成时的核对边界，最新执行结果见 VALIDATION.md。

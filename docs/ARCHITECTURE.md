@@ -79,9 +79,9 @@ Tree-sitter 提供具体语法树（CST）；其结果经过语言提取规则�
 
 | 对象 / 阶段 | 要求 |
 | --- | --- |
-| Symbol | 路径 + 作用域 + 快照内身份；不能只用 save 这样的短名称当键 |
-| CallSite / Reference | 保存引用表达式、源码位置和所属作用域；未解析目标仍保留 |
-| 关系 | 优先 CONTAINS / IMPORTS / REFERENCES / CALLS；逐类定义语义并测试 |
+| Entity | directory/file/class/function 的路径、作用域与快照内身份；不能只用 save 这样的短名称当键 |
+| Dependency site | 保存 call/import/inherit 表达式、源码位置和所属作用域；候选/未解析目标仍保留但不成为边 |
+| 关系 | CONTAINS / IMPORTS / CALLS / INHERITS；普通引用走文本搜索，候选不成为可遍历边 |
 | resolution | resolved_scoped / resolved_import_alias / candidate / unresolved |
 | provenance | 来源位置、使用的 resolver 规则、版本、快照 |
 | 动态场景 | 反射、动态注册、依赖注入等允许未解析；不能用近似同名目标冒充确定事实 |

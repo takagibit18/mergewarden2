@@ -11,7 +11,7 @@ export class LazyCodeGraph implements CodeGraph {
   private stateDir: string; private snapshotId: string; private worker: Worker | undefined; private sequence = 0;
   private ownerToken = randomUUID(); private closed = false;
   private pending = new Map<number, { resolve(value: WorkerResult<unknown>): void; reject(error: unknown): void }>();
-  metrics = { buildMs: 0, queryMs: 0, warmRequestMs: [] as number[], coldRequestMs: [] as number[], calls: 0, coverage: emptyCoverage(), resumedFiles: 0, extractedFiles: 0, storage: { generationBytes: 0, checkpointBytes: 0 } };
+  metrics = { buildMs: 0, queryMs: 0, warmRequestMs: [] as number[], coldRequestMs: [] as number[], calls: 0, coverage: emptyCoverage(), resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: 0, checkpointBytes: 0 } };
   constructor(stateDir: string, snapshotId: string) { this.stateDir = stateDir; this.snapshotId = snapshotId; }
   private start(): Worker {
     if (this.closed) throw new Error("Graph service is closed");
@@ -44,7 +44,7 @@ export class LazyCodeGraph implements CodeGraph {
     signal?.throwIfAborted();
     if (result.metrics) {
       this.metrics.buildMs += result.metrics.buildMs; this.metrics.queryMs += result.metrics.queryMs; this.metrics.coverage = result.metrics.coverage;
-      this.metrics.resumedFiles += result.metrics.resumedFiles; this.metrics.extractedFiles += result.metrics.extractedFiles; this.metrics.storage = result.metrics.storage;
+      this.metrics.resumedFiles += result.metrics.resumedFiles; this.metrics.extractedFiles += result.metrics.extractedFiles; this.metrics.resumedResolutionFiles += result.metrics.resumedResolutionFiles; this.metrics.resolvedFiles += result.metrics.resolvedFiles; this.metrics.storage = result.metrics.storage;
       (result.metrics.cacheHit ? this.metrics.warmRequestMs : this.metrics.coldRequestMs).push(performance.now() - started);
     }
     return result.page ?? { status: "error", snapshotId: this.snapshotId, revision: "head", items: [], truncated: false, coverage: result.metrics?.coverage ?? emptyCoverage(), warnings: [result.error ?? "Graph failed"] };

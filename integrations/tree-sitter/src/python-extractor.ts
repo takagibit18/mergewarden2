@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { Language, Parser, type Node } from "web-tree-sitter";
 import type { LanguageExtractor, SyntaxFacts, SymbolFact, SourceFact, ScopeFact } from "../../../src/graph/contracts.ts";
+import { pythonModuleName } from "../../../src/graph/scope-policy.ts";
 import { loadPinnedPythonGrammar } from "./pinned-grammar.ts";
 const idFor = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-export function pythonModule(path: string): string { return path.replace(/\.py$/, "").replace(/\/__init__$/, "").replaceAll("/", "."); }
+export const pythonModule = pythonModuleName;
 /** Only this adapter knows CST node types. No tree/node escapes extract(). */
 export class PythonTreeSitterExtractor implements LanguageExtractor {
   language = "python";
@@ -17,11 +18,11 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
   }
   async extract(input: { snapshotId: string; path: string; source: string }, limits: { maxFacts?: number; deadline?: number } = {}): Promise<SyntaxFacts> {
     const tree = this.parser.parse(input.source); if (!tree) throw new Error("Tree-sitter did not return a tree");
-    const facts: SyntaxFacts = { symbols: [], calls: [], references: [], imports: [], scopes: [], bindings: [], parseComplete: !tree.rootNode.hasError, diagnostics: [] };
+    const facts: SyntaxFacts = { symbols: [], calls: [], inheritances: [], imports: [], scopes: [], bindings: [], parseComplete: !tree.rootNode.hasError, diagnostics: [] };
     let visits = 0;
     const guard = () => {
       if (++visits % 128 === 0 && limits.deadline !== undefined && performance.now() > limits.deadline) throw new Error("Graph per-file extraction time limit exceeded");
-      const count = facts.symbols.length + facts.calls.length + facts.references.length + facts.imports.length + facts.scopes.length + facts.bindings.length;
+      const count = facts.symbols.length + facts.calls.length + facts.inheritances.length + facts.imports.length + facts.scopes.length + facts.bindings.length;
       if (limits.maxFacts !== undefined && count > limits.maxFacts) throw new Error("Graph per-file extraction fact limit exceeded");
     };
     const field = (n: Node, name: string) => n.childForFieldName(name);
@@ -30,7 +31,7 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
       startLine: n.startPosition.row + 1, endLine: n.endPosition.row + 1, startColumn: n.startPosition.column, endColumn: n.endPosition.column,
       ...(parent ? { parentSymbolId: parent } : {}),
     });
-    const module: SymbolFact = { ...source(tree.rootNode, "module", pythonModule(input.path)), kind: "module", name: pythonModule(input.path) };
+    const module: SymbolFact = { ...source(tree.rootNode, "file", pythonModule(input.path)), kind: "file", name: input.path.split("/").at(-1)! };
     facts.symbols.push(module); facts.scopes.push({ id: module.id, opaque: false });
     const scopes = new Map<string, ScopeFact>([[module.id, facts.scopes[0]!]]);
     const symbols = new Map<string, SymbolFact>([[module.id, module]]);
@@ -47,17 +48,20 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
         if (root) bind(scope, root, "unknown", false);
       } else for (const c of n.namedChildren) target(c, scope);
     };
-    const site = (n: Node, expression: Node | null, scope: SymbolFact, call: boolean, uncertain: boolean) => {
+    const callSite = (n: Node, expression: Node | null, scope: SymbolFact, uncertain: boolean) => {
       const p = uncertain ? [] : parts(expression); const expr = (expression?.text ?? "<dynamic>").slice(0, 512);
-      const value = { ...source(n, call ? "call" : "reference", `${scope.qualifiedName}@${n.startPosition.row + 1}:${n.startPosition.column}`, scope.id), expression: expr, parts: p, ownerSymbolId: scope.id, resolution: "unresolved" as const, candidateTargetIds: [] };
-      if (call) facts.calls.push({ ...value, kind: "call" }); else facts.references.push({ ...value, kind: "reference" });
+      facts.calls.push({ ...source(n, "call", `${scope.qualifiedName}@${n.startPosition.row + 1}:${n.startPosition.column}`, scope.id), expression: expr, parts: p, ownerSymbolId: scope.id, resolution: "unresolved", candidateTargetIds: [], kind: "call" });
+    };
+    const inheritanceSite = (n: Node, owner: SymbolFact, lookupScope: SymbolFact, declarationOrder: number, uncertain: boolean) => {
+      const p = uncertain ? [] : parts(n);
+      facts.inheritances.push({ ...source(n, "inherit", `${owner.qualifiedName}@base:${declarationOrder}`, owner.id), kind: "inherit", expression: n.text.slice(0, 512), parts: p, ownerSymbolId: owner.id, lookupScopeId: lookupScope.id, declarationOrder, resolution: "unresolved", candidateTargetIds: [] });
     };
     const walk = (n: Node, scope: SymbolFact, conditional = false, uncertain = false): void => {
       guard();
       if (n.type === "function_definition" || n.type === "class_definition") {
         const name = field(n, "name"); if (!name) return;
-        const kind = n.type === "class_definition" ? "class" : scope.kind === "class" ? "method" : "function";
-        const symbol: SymbolFact = { ...source(n, kind, `${scope.qualifiedName}.${name.text}`, scope.id), name: name.text, kind };
+        const kind = n.type === "class_definition" ? "class" : "function";
+        const symbol: SymbolFact = { ...source(n, kind, `${scope.qualifiedName}.${name.text}`, scope.id), name: name.text, kind, ...(kind === "function" ? { functionKind: scope.kind === "class" ? "method" as const : "function" as const } : {}) };
         facts.symbols.push(symbol); symbols.set(symbol.id, symbol);
         const metaclass = field(n, "superclasses")?.namedChildren.some(c => c.type === "keyword_argument" && field(c, "name")?.text === "metaclass");
         bind(scope, name.text, metaclass ? "unknown" : "definition", conditional || n.parent?.type === "decorated_definition", symbol.id, n);
@@ -73,7 +77,15 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
           const value = field(p, "value"); if (value) walk(value, scope, conditional, uncertain);
           const annotation = field(p, "type"); if (annotation) walk(annotation, scope, conditional, true);
         }
-        const bases = field(n, "superclasses"); if (bases) walk(bases, scope, conditional, uncertain);
+        const bases = field(n, "superclasses");
+        if (n.type === "class_definition" && bases) {
+          let declarationOrder = 0;
+          for (const base of bases.namedChildren) {
+            if (base.type === "keyword_argument") continue;
+            inheritanceSite(base, symbol, scope, declarationOrder++, uncertain);
+            walk(base, scope, conditional, uncertain || !parts(base).length);
+          }
+        }
         const annotation = field(n, "return_type"); if (annotation) walk(annotation, scope, conditional, true);
         if (field(n, "type_parameters")) sc.opaque = true;
         const body = field(n, "body"); if (body) walk(body, symbol, false, uncertain);
@@ -82,7 +94,11 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
       if (n.type === "import_statement" || n.type === "import_from_statement") {
         const mod = field(n, "module_name"); const raw = mod?.text ?? "";
         const relativeLevel = raw.length - raw.replace(/^\.+/, "").length; const moduleName = raw.slice(relativeLevel);
-        if (n.namedChildren.some(c => c.type === "wildcard_import")) { scopes.get(scope.id)!.opaque = true; facts.diagnostics.push("Wildcard import prevents reliable scope resolution."); }
+        const wildcard = n.namedChildren.find(c => c.type === "wildcard_import");
+        if (wildcard) {
+          scopes.get(scope.id)!.opaque = true; facts.diagnostics.push("Wildcard import preserves only module structure; imported names remain unresolved.");
+          facts.imports.push({ ...source(wildcard, "import", `${scope.qualifiedName}.*@import`, scope.id), kind: "import", scopeId: scope.id, module: moduleName, alias: "*", boundModule: moduleName, relativeLevel });
+        }
         for (const c of n.namedChildren.filter(c => c.id !== mod?.id && ["dotted_name", "aliased_import"].includes(c.type))) {
           const name = (field(c, "name") ?? c).text; const alias = field(c, "alias")?.text;
           const imported = n.type === "import_from_statement"; const bound = alias ?? (imported ? name : name.split(".")[0]!);
@@ -94,10 +110,10 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
         return;
       }
       if (["global_statement", "nonlocal_statement"].includes(n.type)) {
-        facts.diagnostics.push("global/nonlocal rebinding is unresolved."); for (const s of facts.scopes) s.opaque = true; return;
+        facts.diagnostics.push("global/nonlocal rebinding is unresolved in its containing scope."); scopes.get(scope.id)!.opaque = true; return;
       }
       if (["lambda", "list_comprehension", "set_comprehension", "dictionary_comprehension", "generator_expression"].includes(n.type)) {
-        const unknown = (node: Node) => { if (node.type === "call") site(node, field(node, "function"), scope, true, true); if (node.type === "named_expression") target(field(node, "name"), scope); for (const c of node.namedChildren) unknown(c); };
+        const unknown = (node: Node) => { if (node.type === "call") callSite(node, field(node, "function"), scope, true); if (node.type === "named_expression") target(field(node, "name"), scope); for (const c of node.namedChildren) unknown(c); };
         unknown(n); facts.diagnostics.push("Lambda/comprehension scope is unresolved."); return;
       }
       if (["assignment", "augmented_assignment", "named_expression"].includes(n.type)) {
@@ -110,21 +126,21 @@ export class PythonTreeSitterExtractor implements LanguageExtractor {
       if (n.type === "delete_statement") for (const c of n.namedChildren) target(c, scope);
       if (["match_statement", "type_alias_statement"].includes(n.type)) { scopes.get(scope.id)!.opaque = true; uncertain = true; facts.diagnostics.push("Pattern/type alias binding is unresolved."); }
       if (n.type === "call") {
-        const fn = field(n, "function"); site(n, fn, scope, true, uncertain);
+        const fn = field(n, "function"); callSite(n, fn, scope, uncertain);
         if (fn?.type === "identifier" && ["exec", "eval"].includes(fn.text)) scopes.get(scope.id)!.opaque = true;
         if (fn && !parts(fn).length) walk(fn, scope, conditional, uncertain);
         const argumentsNode = field(n, "arguments"); if (argumentsNode) walk(argumentsNode, scope, conditional, uncertain);
         return;
       }
       if (n.type === "keyword_argument") { const value = field(n, "value"); if (value) walk(value, scope, conditional, uncertain); return; }
-      if (n.type === "attribute" || n.type === "identifier") { site(n, n, scope, false, uncertain); if (n.type === "attribute" && !parts(n).length) { const receiver = field(n, "object"); if (receiver) walk(receiver, scope, conditional, uncertain); } return; }
+      // Ordinary reads and attribute access remain analysis input only; they are not core graph sites.
+      if (n.type === "attribute" || n.type === "identifier") { if (n.type === "attribute" && !parts(n).length) { const receiver = field(n, "object"); if (receiver) walk(receiver, scope, conditional, uncertain); } return; }
       const branch = conditional || ["if_statement", "try_statement", "for_statement", "while_statement", "with_statement"].includes(n.type);
       for (const c of n.namedChildren) walk(c, scope, branch, uncertain);
     };
     try {
       for (const child of tree.rootNode.namedChildren) walk(child, module);
       guard();
-      if (facts.diagnostics.some(d => d.startsWith("global/nonlocal"))) for (const s of facts.scopes) s.opaque = true;
       if (!facts.parseComplete) facts.diagnostics.push("Syntax errors exist; these facts do not cover a complete parse.");
       facts.diagnostics = [...new Set(facts.diagnostics)]; return facts;
     } finally { tree.delete(); }
