@@ -7,10 +7,11 @@ import type {GraphMetrics} from '../../graph/sqlite-store.ts';
 import {LocAgentRetrieval} from './retrieval.ts';
 let retrieval:LocAgentRetrieval|undefined,metrics:GraphMetrics|undefined,indexMs=0,first=true;let queue=Promise.resolve();
 async function initialize(){
- const store=await SnapshotStore.load(workerData.stateDir,workerData.snapshotId);const opened=await SqliteCodeGraph.open(store,{ownerToken:workerData.ownerToken});metrics=opened.metrics;
+ const initializationStarted=performance.now();
+ const store=await SnapshotStore.load(workerData.stateDir,workerData.snapshotId);const opened=workerData.preparedOnly?await SqliteCodeGraph.openPublishedOnly(store):await SqliteCodeGraph.open(store,{ownerToken:workerData.ownerToken});metrics=opened.metrics;
  try{
   const db=new DatabaseSync(await publishedGraphPath(workerData.stateDir,workerData.snapshotId),{readOnly:true});
-  try{const id=store.manifest.identity.id;const symbols=readGraphEntities(db,id);const relations=readGraphRelations(db,id);const meta=db.prepare('SELECT warnings,generation_id,state,graph_scope FROM graph_snapshots WHERE snapshot_id=?').get(id)!;const sources:Record<string,string>={};for(const path of new Set(symbols.filter(s=>s.kind==='file').map(s=>s.path)))sources[path]=await store.text('head',path);const start=performance.now();retrieval=new LocAgentRetrieval({snapshotId:id,generationId:String(meta.generation_id),generationState:String(meta.state) as 'ready'|'partial',graphScope:String(meta.graph_scope) as 'core'|'all',symbols,relations,sources,coverage:metrics.coverage,warnings:JSON.parse(String(meta.warnings))},workerData.config);indexMs=performance.now()-start;}finally{db.close();}
+  try{const id=store.manifest.identity.id;const symbols=readGraphEntities(db,id);const relations=readGraphRelations(db,id);const meta=db.prepare('SELECT warnings,generation_id,state,graph_scope FROM graph_snapshots WHERE snapshot_id=?').get(id)!;const sources:Record<string,string>={};for(const path of new Set(symbols.filter(s=>s.kind==='file').map(s=>s.path)))sources[path]=await store.text('head',path);retrieval=new LocAgentRetrieval({snapshotId:id,generationId:String(meta.generation_id),generationState:String(meta.state) as 'ready'|'partial',graphScope:String(meta.graph_scope) as 'core'|'all',symbols,relations,sources,coverage:metrics.coverage,warnings:JSON.parse(String(meta.warnings))},workerData.config);indexMs=performance.now()-initializationStarted;}finally{db.close();}
  }finally{opened.graph.close();}
 }
 async function handle(message:{id:number;method:string;input:any}){

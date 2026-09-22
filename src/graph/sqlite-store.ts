@@ -19,8 +19,9 @@ export interface GraphStorageMetrics { generationBytes: number; checkpointBytes:
 export interface GraphMetrics {
   buildMs: number; queryMs: number; cacheHit: boolean; coverage: GraphCoverage;
   resumedFiles: number; extractedFiles: number; resumedResolutionFiles: number; resolvedFiles: number; storage: GraphStorageMetrics;
+  generationId?: string; generationState?: GraphGenerationState; scope?: GraphScope;
 }
-interface PublishedManifest {
+export interface PublishedManifest {
   manifestVersion: 1; snapshotId: string; cacheIdentity: string; schemaVersion: number;
   resolverVersion: string; parserVersion: string; policyVersion: string; scope: GraphScope; budget: GraphBuildBudget;
   generationId: string; generationState: GraphGenerationState; databaseFile: string; databaseBytes: number;
@@ -185,6 +186,9 @@ export function readGraphRelations(db: DatabaseSync, snapshotId: string): Relati
   const sql = `${relationSelect} WHERE r.snapshot_id=? AND rs.site_id=(SELECT min(rs2.site_id) FROM relation_sites rs2 WHERE rs2.snapshot_id=r.snapshot_id AND rs2.relation_id=r.relation_id) ORDER BY r.relation_id`;
   return (db.prepare(sql).all(snapshotId) as Record<string, unknown>[]).map(relationFromRow);
 }
+function metricsForPublished(_state: string, _snapshotId: string, _budget: GraphBuildBudget, scope: GraphScope, manifest: PublishedManifest, checkpoint: number): GraphMetrics {
+  return { buildMs: 0, queryMs: 0, cacheHit: true, coverage: manifest.coverage, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: manifest.databaseBytes, checkpointBytes: checkpoint }, generationId: manifest.generationId, generationState: manifest.generationState, scope };
+}
 
 /** Immutable, already-published graph generation. */
 export class SqliteCodeGraph implements CodeGraph {
@@ -214,7 +218,7 @@ export class SqliteCodeGraph implements CodeGraph {
       published = await readPublished(store.stateDir, id, budget, scope);
       if (published) {
         const graph = await this.openPublished(store.stateDir, id, budget, scope, published);
-        return { graph, metrics: { buildMs: 0, queryMs: 0, cacheHit: true, coverage: published.coverage, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: published.databaseBytes, checkpointBytes: await checkpointBytes(graphCheckpointPath(store.stateDir, id, budget, scope)) } } };
+        return { graph, metrics: metricsForPublished(store.stateDir, id, budget, scope, published, await checkpointBytes(graphCheckpointPath(store.stateDir, id, budget, scope))) };
       }
     } catch {
       await quarantinePublished(store.stateDir, id, budget, scope, published);
@@ -227,10 +231,27 @@ export class SqliteCodeGraph implements CodeGraph {
       const raced = await readPublished(store.stateDir, id, budget, scope);
       if (raced) {
         const graph = await this.openPublished(store.stateDir, id, budget, scope, raced);
-        return { graph, metrics: { buildMs: 0, queryMs: 0, cacheHit: true, coverage: raced.coverage, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: raced.databaseBytes, checkpointBytes: await checkpointBytes(graphCheckpointPath(store.stateDir, id, budget, scope)) } } };
+        return { graph, metrics: metricsForPublished(store.stateDir, id, budget, scope, raced, await checkpointBytes(graphCheckpointPath(store.stateDir, id, budget, scope))) };
       }
       return await this.build(store, budget, scope, started, options.testFault);
     } finally { await releaseGraphBuildLock(store.stateDir, id, ownerToken, budget, scope); }
+  }
+
+  /** Evaluation-only: validate and open an already published generation without
+   * creating directories, quarantining data, acquiring a builder lock, or rebuilding. */
+  static async openPublishedOnly(store: SnapshotStore, options: { budget?: GraphBuildBudget; scope?: GraphScope } = {}): Promise<{ graph: SqliteCodeGraph; metrics: GraphMetrics; manifest: PublishedManifest }> {
+    const id = store.manifest.identity.id; const budget = options.budget ?? DEFAULT_GRAPH_BUDGET; const scope = options.scope ?? "core"; assertBudget(budget);
+    let manifest: PublishedManifest | undefined;
+    try {
+      manifest = await readPublished(store.stateDir, id, budget, scope);
+      if (!manifest) throw new Error("No published graph generation");
+      const graph = await this.openPublished(store.stateDir, id, budget, scope, manifest);
+      const bytes = await checkpointBytes(graphCheckpointPath(store.stateDir, id, budget, scope));
+      return { graph, metrics: metricsForPublished(store.stateDir, id, budget, scope, manifest, bytes), manifest };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Published graph validation failed";
+      throw new GraphOpenError("error", `Prepared-only graph open failed: ${reason}`, manifest?.coverage ?? emptyCoverage(), [...(manifest?.warnings ?? []), "Prepared-only evaluation never rebuilds a missing or invalid generation."]);
+    }
   }
 
   private static async build(store: SnapshotStore, budget: GraphBuildBudget, scope: GraphScope, started: number, testFault?: "publish_enospc"): Promise<{ graph: SqliteCodeGraph; metrics: GraphMetrics }> {
@@ -372,7 +393,7 @@ export class SqliteCodeGraph implements CodeGraph {
       const manifest: PublishedManifest = { manifestVersion: 1, snapshotId: id, cacheIdentity: identity, schemaVersion: GRAPH_SCHEMA_VERSION, resolverVersion: RESOLVER_VERSION, parserVersion: PARSER_VERSION, policyVersion: GRAPH_POLICY_VERSION, scope, budget, generationId, generationState, databaseFile: `generations/${generationId}.sqlite`, databaseBytes, coverage, warnings, counts, publishedAt: new Date().toISOString() };
       await writeJson(graphPublishPath(store.stateDir, id, budget, scope), manifest); setBuildState(staging, identity, "complete"); staging.exec("PRAGMA wal_checkpoint(TRUNCATE)");
       const graph = await this.openPublished(store.stateDir, id, budget, scope, manifest);
-      return { graph, metrics: { buildMs: performance.now() - started, queryMs: 0, cacheHit: false, coverage, resumedFiles, extractedFiles, resumedResolutionFiles, resolvedFiles, storage: { generationBytes: databaseBytes, checkpointBytes: await checkpointBytes(stagingPath) } } };
+      return { graph, metrics: { buildMs: performance.now() - started, queryMs: 0, cacheHit: false, coverage, resumedFiles, extractedFiles, resumedResolutionFiles, resolvedFiles, storage: { generationBytes: databaseBytes, checkpointBytes: await checkpointBytes(stagingPath) }, generationId, generationState, scope } };
     } finally { extractor?.dispose(); staging.close(); }
   }
 

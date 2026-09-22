@@ -24,9 +24,9 @@ test('reserve statistics preserve timeout/partial outcomes and measure no qualit
 test('formal pilot admission requires six disjoint reserve tasks and all arms on identical snapshots',()=>{
  const tasks=Array.from({length:6},(_,i)=>({case_id:'reserve-'+i,repository:'o/r',repository_url:'https://github.com/o/r.git',base_sha:'a'.repeat(40),reviewed_sha:'b'.repeat(40),language:'Python'})),plan=planBatch(tasks,{});
  const batch={identity,identitySha256:digest(identity),plan,planSha256:digest(plan)},lock={corpusSha256:'corpus',reserveIds:tasks.map(t=>t.case_id)};
- const runs=plan.map(j=>({...j,caseId:j.task.case_id,identitySha256:batch.identitySha256,snapshotId:j.task.case_id,status:'completed',delivered:true,manifest:{status:'delivered',snapshotId:j.task.case_id,model:{provider:identity.provider,modelId:identity.model},limits:{timeoutMs:identity.timeoutMs,maxToolCalls:identity.maxTools},runtimeConfiguration:runtime(j.arm)},report:{snapshot:{id:j.task.case_id}}}));
+ const runs=plan.map(j=>({...j,caseId:j.task.case_id,identitySha256:batch.identitySha256,snapshotId:j.task.case_id,status:'completed',delivered:true,graphPreparation:{generationId:'generation'},manifest:{status:'delivered',snapshotId:j.task.case_id,model:{provider:identity.provider,modelId:identity.model},limits:{timeoutMs:identity.timeoutMs,maxToolCalls:identity.maxTools},runtimeConfiguration:runtime(j.arm),metrics:{graph:{buildMs:0,extractedFiles:0,resolvedFiles:0,resumedFiles:0,resumedResolutionFiles:0,coldRequestMs:[],generationId:'generation'}}},report:{snapshot:{id:j.task.case_id}}}));
  validatePilot({runs,identitySha256:batch.identitySha256},batch,lock);
- assert.throws(()=>validatePilot({runs:runs.slice(1),identitySha256:batch.identitySha256},batch,lock),/incomplete/);
+ assert.throws(()=>validatePilot({runs:runs.slice(1),identitySha256:batch.identitySha256},batch,lock),/18 arm runs/);
  const drift=structuredClone(runs);drift[1].snapshotId='other';assert.throws(()=>validatePilot({runs:drift,identitySha256:batch.identitySha256},batch,lock),/identity/);
  assert.throws(()=>validatePilot({runs,identitySha256:batch.identitySha256},batch,{...lock,reserveIds:lock.reserveIds.slice(1)}),/reserve tasks/);
 });

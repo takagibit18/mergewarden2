@@ -8,15 +8,16 @@ import type { GraphMetrics } from "./sqlite-store.ts";
 type WorkerResult<T> = { id: number; page?: GraphPage<T>; metrics?: GraphMetrics; error?: string };
 /** One terminable graph service per review. Parser, verified SQLite and indexes are reused. */
 export class LazyCodeGraph implements CodeGraph {
-  private stateDir: string; private snapshotId: string; private worker: Worker | undefined; private sequence = 0;
+  private stateDir: string; private snapshotId: string; private preparedOnly: boolean; private worker: Worker | undefined; private sequence = 0;
   private ownerToken = randomUUID(); private closed = false;
   private pending = new Map<number, { resolve(value: WorkerResult<unknown>): void; reject(error: unknown): void }>();
-  metrics = { buildMs: 0, queryMs: 0, warmRequestMs: [] as number[], coldRequestMs: [] as number[], calls: 0, coverage: emptyCoverage(), resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: 0, checkpointBytes: 0 } };
-  constructor(stateDir: string, snapshotId: string) { this.stateDir = stateDir; this.snapshotId = snapshotId; }
+  metrics = { buildMs: 0, queryMs: 0, warmRequestMs: [] as number[], coldRequestMs: [] as number[], calls: 0, workerStarts: 0, coverage: emptyCoverage(), resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0, storage: { generationBytes: 0, checkpointBytes: 0 }, generationId: undefined as GraphMetrics["generationId"], generationState: undefined as GraphMetrics["generationState"], scope: undefined as GraphMetrics["scope"] };
+  constructor(stateDir: string, snapshotId: string, options: { preparedOnly?: boolean } = {}) { this.stateDir = stateDir; this.snapshotId = snapshotId; this.preparedOnly = options.preparedOnly === true; }
   private start(): Worker {
     if (this.closed) throw new Error("Graph service is closed");
     if (this.worker) return this.worker;
-    const worker = new Worker(new URL("./worker.ts", import.meta.url), { workerData: { stateDir: this.stateDir, snapshotId: this.snapshotId, ownerToken: this.ownerToken }, execArgv: ["--experimental-strip-types"], resourceLimits: { maxOldGenerationSizeMb: 512 } });
+    this.metrics.workerStarts++;
+    const worker = new Worker(new URL("./worker.ts", import.meta.url), { workerData: { stateDir: this.stateDir, snapshotId: this.snapshotId, ownerToken: this.ownerToken, preparedOnly: this.preparedOnly }, execArgv: ["--experimental-strip-types"], resourceLimits: { maxOldGenerationSizeMb: 512 } });
     worker.on("message", (value: WorkerResult<unknown>) => { const request = this.pending.get(value.id); if (!request) return; this.pending.delete(value.id); request.resolve(value); if (!this.pending.size) worker.unref(); });
     const failed = (error: unknown) => { for (const request of this.pending.values()) request.reject(error); this.pending.clear(); if (this.worker === worker) this.worker = undefined; };
     worker.once("error", () => failed(new Error("Graph worker failed; empty results cannot establish absence.")));
@@ -49,6 +50,7 @@ export class LazyCodeGraph implements CodeGraph {
     if (result.metrics) {
       this.metrics.buildMs += result.metrics.buildMs; this.metrics.queryMs += result.metrics.queryMs; this.metrics.coverage = result.metrics.coverage;
       this.metrics.resumedFiles += result.metrics.resumedFiles; this.metrics.extractedFiles += result.metrics.extractedFiles; this.metrics.resumedResolutionFiles += result.metrics.resumedResolutionFiles; this.metrics.resolvedFiles += result.metrics.resolvedFiles; this.metrics.storage = result.metrics.storage;
+      this.metrics.generationId = result.metrics.generationId; this.metrics.generationState = result.metrics.generationState; this.metrics.scope = result.metrics.scope;
       (result.metrics.cacheHit ? this.metrics.warmRequestMs : this.metrics.coldRequestMs).push(performance.now() - started);
     }
     return result.page ?? { status: "error", snapshotId: this.snapshotId, revision: "head", items: [], truncated: false, coverage: result.metrics?.coverage ?? emptyCoverage(), warnings: [result.error ?? "Graph failed"] };

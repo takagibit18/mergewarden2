@@ -20,6 +20,15 @@ test('SQLite cache, snapshot isolation, stable rebuild and bounded pagination',a
   await f.write('a.py','def unrelated(): pass\n'); const head=await f.commit(); const other=await SnapshotStore.freeze({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},configuration:{}});
   ({graph}=await SqliteCodeGraph.open(other)); assert.equal((await graph.lookup({snapshotId:other.manifest.identity.id,query:'save',limit:5})).items.length,0); await assert.rejects(graph.neighbors({...request,snapshotId:other.manifest.identity.id}),/Entity/);graph.close();
 });
+test('prepared-only open validates a published generation and never builds or quarantines',async t=>{
+  const missing=await fixture(t);await assert.rejects(SqliteCodeGraph.openPublishedOnly(missing.store),error=>error instanceof GraphOpenError&&/never rebuilds/.test(error.warnings.at(-1)));
+  await assert.rejects(publishedGraphPath(missing.state,missing.id),error=>error?.code==='ENOENT');
+  const f=await fixture(t);const built=await SqliteCodeGraph.open(f.store);const generation=built.metrics.generationId;built.graph.close();
+  const hot=await SqliteCodeGraph.openPublishedOnly(f.store);assert.equal(hot.metrics.cacheHit,true);assert.equal(hot.metrics.buildMs,0);assert.equal(hot.metrics.extractedFiles,0);assert.equal(hot.metrics.resolvedFiles,0);assert.equal(hot.metrics.generationId,generation);hot.graph.close();
+  const path=await publishedGraphPath(f.state,f.id);await writeFile(path,'corrupt');
+  await assert.rejects(SqliteCodeGraph.openPublishedOnly(f.store),error=>error instanceof GraphOpenError&&/Prepared-only/.test(error.message));
+  assert.equal(await publishedGraphPath(f.state,f.id),path);
+});
 for(const damage of ['corrupt','version','parser','coverage','missing-edge']) test(`derived cache rebuilds ${damage} rather than querying false ready`,async t=>{
   const f=await fixture(t); const initial=await SqliteCodeGraph.open(f.store); initial.graph.close(); const path=await publishedGraphPath(f.state,f.id);
   if(damage==='corrupt') await writeFile(path,'not sqlite'); else { const db=new DatabaseSync(path); if(damage==='version')db.exec("UPDATE graph_snapshots SET resolver_version='old'"); else if(damage==='parser')db.exec("UPDATE graph_snapshots SET parser_version='old'"); else if(damage==='coverage')db.exec("UPDATE graph_snapshots SET coverage='{}'"); else if(damage==='missing-edge')db.exec("DELETE FROM relation_sites WHERE relation_id IN (SELECT relation_id FROM relations WHERE kind='CALLS'); DELETE FROM relations WHERE kind='CALLS'"); db.close(); }

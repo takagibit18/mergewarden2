@@ -6,7 +6,7 @@ export interface ReviewOptions {
   repositoryPath: string; stateDir: string; input?: ReviewInput; rerunId?: string;
   model: ModelSelection; timeoutMs?: number; maxToolCalls?: number; signal?: AbortSignal;
   /** Internal ablation only; never exposed as a product mode. */
-  evaluation?: { tools: "text-only" | "text+graph" | "text+locagent"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig };
+  evaluation?: { tools: "text-only" | "text+graph" | "text+locagent"; graphMode?: "lazy" | "prepared_only"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig };
 }
 export interface RuntimeTool { name: string; description: string; schema: Record<string, unknown>; execute(input: unknown): Promise<unknown> }
 export interface ReviewRuntime {

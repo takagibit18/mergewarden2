@@ -30,3 +30,8 @@ test('formal first-attempt policy never replaces an already started result',asyn
  const first=await executeBatch({output,plan,identity,execute:async()=>{calls++;return {status:'partial',delivered:true,findings:[]};}});assert.equal(first[0].attempt,1);assert.equal(first[0].status,'partial');
  const resumed=await executeBatch({output,plan,identity,resume:true,execute:async()=>{calls++;return {status:'completed',delivered:true,findings:[]};}});assert.equal(calls,1);assert.equal(resumed[0].attempt,1);assert.equal(resumed[0].status,'partial');
 });
+test('a Hot Graph protocol violation is retained and stops the batch immediately',async()=>{
+ const output=await mkdtemp(join(tmpdir(),'mw-real-protocol-')),plan=planBatch([task],{armNames:['T0','G0']}),identity={corpus:'protocol'};let calls=0;
+ await assert.rejects(executeBatch({output,plan,identity,execute:async()=>{calls++;const error=Error('hot drift');error.code='EXPERIMENT_PROTOCOL_VIOLATION';throw error;}}),/hot drift/);
+ assert.equal(calls,1);const latest=JSON.parse(await readFile(join(output,'latest.json'),'utf8'));assert.equal(latest.runs.length,1);assert.equal(latest.runs[0].status,'failed');
+});

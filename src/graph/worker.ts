@@ -10,7 +10,7 @@ async function handle(message: { id: number; method: string; input: Parameters<G
   try {
     if (!graph) {
       const store = await SnapshotStore.load(workerData.stateDir, workerData.snapshotId);
-      const opened = await SqliteCodeGraph.open(store, { ownerToken: workerData.ownerToken }); graph = opened.graph; openedMetrics = opened.metrics;
+      const opened = workerData.preparedOnly ? await SqliteCodeGraph.openPublishedOnly(store) : await SqliteCodeGraph.open(store, { ownerToken: workerData.ownerToken }); graph = opened.graph; openedMetrics = opened.metrics;
     }
     const queryStarted = performance.now(); const page = message.method === "lookup" ? await graph.lookup(message.input) : await graph.neighbors(message.input);
     const base = openedMetrics!; const metrics: GraphMetrics = deliveredOpenMetrics ? { ...base, buildMs: 0, queryMs: performance.now() - queryStarted, cacheHit: true, resumedFiles: 0, extractedFiles: 0, resumedResolutionFiles: 0, resolvedFiles: 0 } : { ...base, queryMs: performance.now() - queryStarted };

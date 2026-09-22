@@ -77,8 +77,9 @@ export class ReviewEngine {
       const runId = randomUUID(); const runDir = runPath(stateDir, runId); await mkdir(runDir, { recursive: true, mode: 0o700 });
       manifest = { schemaVersion: 1, runId, snapshotId: store.manifest.identity.id, repositoryPath: repository, model: options.model, configurationFingerprint: store.manifest.identity.configurationFingerprint, limits: { timeoutMs, maxToolCalls: maxTools }, status: "running", createdAt: new Date().toISOString(), ...(options.rerunId ? { parentRunId: options.rerunId } : {}) };
       await writeJson(join(runDir, "run.json"), manifest);
-      graph = new LazyCodeGraph(stateDir, store.manifest.identity.id);
-      retrieval = options.evaluation?.tools === "text+locagent" ? new LazyLocAgent(stateDir, store.manifest.identity.id, options.evaluation.retrieval) : undefined;
+      const preparedOnly = options.evaluation?.graphMode === "prepared_only";
+      graph = new LazyCodeGraph(stateDir, store.manifest.identity.id, { preparedOnly });
+      retrieval = options.evaluation?.tools === "text+locagent" ? new LazyLocAgent(stateDir, store.manifest.identity.id, options.evaluation.retrieval, { preparedOnly }) : undefined;
       const graphEnabled = options.evaluation?.tools !== "text-only";
       manifest.toolExposure = retrieval ? "text+locagent" : graphEnabled ? "text+graph" : "text-only";
       let navigationDegraded = false; let navigationErrors = 0;

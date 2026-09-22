@@ -56,7 +56,11 @@ export async function executeBatch({output,plan,identity,resume=false,execute,si
    let record={...job,caseId:job.task.case_id,identitySha256:batch.identitySha256,attempt,startedAt:new Date().toISOString(),status:'running',delivered:false,findings:[]};await writeJson(target,record);
    const started=performance.now();
    try {const result=await execute(job,attempt);for(const k of ['runKey','task','taskSha256','arm','repeat','identitySha256','attempt','caseId'])if(k in result&&digest(result[k])!==digest(record[k]))throw Error('Executor identity drift');record={...record,...result};}
-   catch(error){record={...record,status:signal?.aborted?'cancelled':'failed',error:'Review/materialization/delivery failed; inspect retained native artifacts. '+(error.code??''),delivered:false};}
+   catch(error){record={...record,status:signal?.aborted?'cancelled':'failed',error:'Review/materialization/delivery failed; inspect retained native artifacts. '+(error.code??''),delivered:false};
+    record.elapsedMs=performance.now()-started;record.finishedAt=new Date().toISOString();await writeJson(target,record);results.push(record);await writeJson(join(output,'latest.json'),{identitySha256:batch.identitySha256,runs:results});
+    if(error?.code==='EXPERIMENT_PROTOCOL_VIOLATION')throw error;
+    continue;
+   }
    record.elapsedMs=performance.now()-started;record.finishedAt=new Date().toISOString();await writeJson(target,record);results.push(record);
    await writeJson(join(output,'latest.json'),{identitySha256:batch.identitySha256,runs:results});
   }
