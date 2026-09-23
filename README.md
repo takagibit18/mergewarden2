@@ -1,6 +1,6 @@
 # MergeWarden 2
 
-基于 Pi 的只读代码审查引擎。当前在 v0.1 审查闭环上实现 **v0.2 Python CodeGraph 与可复现评测**：同一个 Agent 按需使用文本和图工具，最终 finding 仍引用不可变源码。BigModel GLM-5.3-Flash 已通过真实 CLI 审查、图工具、报告重开、证据核验和同快照重跑 smoke；实测范围见 [验证记录](docs/VALIDATION.md)。**尚无证据证明 Graph 提高了审查质量**，未打版本标签。
+基于 Pi 的只读代码审查引擎。当前在 v0.1 审查闭环上实现 **v0.2 Python CodeGraph 与可复现评测**：同一个 Agent 按需使用文本和图工具，最终 finding 仍引用不可变源码。Graph v4 prepared-only 协议、8 个真实快照热查询门槛和 18/18 reserve pilot 已通过。RealGolden40 正式三臂实验已保留全部 120 个首轮结果，但 BigModel GLM-5.3-Flash 在第 5 次起返回余额/资源包不足，最终仅 4/120 完成交付；这不足以比较 Graph 质量或成本。实测范围见 [验证记录](docs/VALIDATION.md)。**尚无证据证明 Graph 提高了审查质量**，v0.2 暂不打版本标签。
 
 ## 开始使用
 

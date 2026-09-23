@@ -1,6 +1,8 @@
-# 当前实现状态 · 2026-09-22
+# 当前实现状态 · 2026-09-23
 
-Python 图已升级为 schema v4 的 LocAgent 风格实体图：directory/file/class/function 与 CONTAINS/IMPORTS/CALLS/INHERITS；method 作为 function 子类，普通名称引用不建图。默认 core 覆盖 changed 与生产 Python，all 为显式独立 generation。两遍流式 resolver、逐文件关系 checkpoint、聚合关系和无 facts/payload 的紧凑最终库已落地。8 个固定真实快照的 core 为 7 ready + 1 预算内 partial；最终完整验证 234/234 通过，规模、性能、分层和引用消融数据见 VALIDATION。该升级没有重新运行付费审查，也不构成质量增益证据。
+Python 图已升级为 schema v4 的 LocAgent 风格实体图：directory/file/class/function 与 CONTAINS/IMPORTS/CALLS/INHERITS；method 作为 function 子类，普通名称引用不建图。默认 core 覆盖 changed 与生产 Python，all 为显式独立 generation。两遍流式 resolver、逐文件关系 checkpoint、聚合关系和无 facts/payload 的紧凑最终库已落地。prepared-only 协议把构图和模型 loop 永久分离，并以 receipt/lock 绑定 generation、源码快照和 runtime。8 个固定真实快照的 core 为 7 ready + 1 预算内 partial；G0/G1 热查询的 p95/max 均低于 500/2000 ms 门槛。最终完整验证 237/237 通过，规模、性能、分层和引用消融数据见 VALIDATION。
+
+RealGolden40 的 18/18 reserve pilot 完成交付并生成 READY 正式锁。正式 T0/G0/G1 计划的 120 个 first-attempt 均已落盘，但模型供应商从第 5 次运行起持续返回 1113“余额不足或无可用资源包”；仅 4/120 完成交付，116 次失败，不能原地重试或覆盖。唯一可裁定 finding 与 reference 匹配，但 1/72 的 reference recall、1/1 precision 和各 arm 差异都不具备质量比较意义。当前结论是工程门槛通过、正式实验保全通过、运行完成率门槛失败；v0.2 不打标签。
 
 RealGolden 三臂 harness 已分离“审查完成”与“结构导航可用性”：G0/G1 共享同一中性 `NAVIGATION_POLICY_PROMPT`，各自 capability 只说明工具名、调用关系和机械语义；T0 不接收该 system policy 且仍只暴露四个文本/提交工具。Graph/retrieval 错误保留显式 tool error/warning、`metrics.navigation` 诊断和报告限制说明，但不再单独 poison 已满足差异覆盖、源码证据、最终提交与交付门槛的业务完成态。正式 RealGolden 锁固定 `first_attempt`，reserve 保留 operational retry；盲审包将 arm、run key、Graph 调用与 trace 保留在私有映射中，不展示给裁定者。
 
@@ -19,7 +21,7 @@ v0.2 的 Python 图与评测工程路径已接在 v0.1 上，修订 Golden 前�
 | CLI | review/rerun/models/history/show/evidence/doctor/unlock | VS Code UI 尚未实现 |
 | Python 图 | 固定 grammar；directory/file/class/function；CONTAINS/IMPORTS/CALLS/INHERITS；core/all 分层；两遍流式保守 resolver；可恢复 checkpoint、紧凑不可变 generation 原子发布、失败缓存、单 review 可终止 worker | 只索引 head；动态 receiver、全类型推断、高级 import 根及跨 snapshot 增量更新不支持 |
 | VS Code/WSL | 路线和契约确定 | 扩展、VSIX 及正式环境验收待后续 |
-| 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；逐例语义 mapping 与 native trace 派生归因 | r2 未执行全 20-case 新对照；样本仍受控、非独立 holdout，追加重复与公开项目效果待验收 |
+| 评测 | 当前 r2 的 20 例 Git SHA/源码/hash；12 defect + 8 clean；r1 按原字节归档；r2 的 8-case T0/G0/G1 挑战已实跑；RealGolden40 120 个正式 first-attempt 已保全，4 completed / 116 provider failures；逐例语义 mapping 与 native trace 派生归因 | 本轮正式结果因余额耗尽不能用于三臂质量/成本比较；须充值后另建 successor lock/output，不得覆盖本轮；样本仍由 Agent 审核、非独立 holdout |
 
 资源上限：单文件 1 MiB，捕获最多 10,000 个路径、100 MiB 内容，最多 200 个变更路径；源码最多每次 200 行/32 KiB，差异按页读取，搜索最多 100 个结果。超限会拒绝、明确不可审查或返回截断；不能据此认定无缺陷。工作区符号链接路径拒绝读取；提交/index 的符号链接、子模块、二进制、超大文件不能计入文本审查覆盖。
 

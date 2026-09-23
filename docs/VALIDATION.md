@@ -327,3 +327,21 @@ RealGolden 模型预算测试通过真实 Pi 请求构造器和离线 HTTP 截�
 completion 现只依赖最终提交、完整差异覆盖和无 model/timeout/tool-budget 错误等既有业务门槛。Graph/retrieval 失败保留 tool error/warning、报告限制说明与 `metrics.navigation.{attempted,degraded,errors}`；成功 text/source fallback 的 finding 和 zero-finding review 可 completed，而无 submit 或 timeout 仍是 partial。正式批跑使用 `first_attempt`，reserve 仍可 operational retry。盲审包确定性排除 arm、run key、Graph metrics 和 trace，私有映射绑定 prediction/gold hash。
 
 修改前完整 `npm run verify` 通过：核心 135、Pi 18、Tree-sitter 38、RealGolden 构造 20，另有全部类型检查、demo 与 status。修改后完整验证同样通过：核心 142、Pi 18、Tree-sitter 38、RealGolden 构造 20，0 failed/0 skipped，三组 TypeScript 检查、demo 和 status 全部成功。新回归覆盖 prompt 组合、真实 Pi active tools/工具描述、Graph 失败后有 finding/无 finding fallback、无 submit、timeout、T0 不变、Graph 不能成为 evidence、formal first-attempt 及盲审隔离。真实 reserve/formal 冻结产物保留在 checkout 外，不改写旧锁或历史结果。
+
+## v0.2 Scheme A 收官实验 · 2026-09-23
+
+实现固定在 `af9bc9a25b6b04cad78df7ed508ffb3b90cd09a0`。Graph preparation 对 40 个正式任务产生 40 个唯一 generation（31 ready、9 partial），receipt digest 为 `dd8b18dd0bb9b0816e17117c621214bba38a22aa80df8e17da562739055ef415`；正式实验锁状态 READY，策略为 `first_attempt`。8 个固定快照的 G0/G1 热查询共 16 组，全部通过 p95 ≤ 500 ms、max ≤ 2000 ms 门槛，0 error、0 protocol violation；最慢 G1 p95 为 44.83 ms，最慢 G0 p95 为 52.55 ms。
+
+同配置 reserve pilot 为 18/18 完成交付，0 timeout、0 truncation、0 tool-budget error。平均每次结果如下；token 为 SDK 报告的 input + output，不把 cacheRead 再次相加。
+
+| arm | 平均延迟 | 总 token | cacheRead | 工具调用 | Graph 调用 |
+|---|---:|---:|---:|---:|---:|
+| T0 | 92.35 s | 478,543 | 391,232 | 71 | 0 |
+| G0 | 139.32 s | 546,800 | 437,632 | 72 | 0 |
+| G1 | 107.95 s | 722,819 | 620,032 | 81 | 0 |
+
+正式计划中的 40 tasks × 3 arms 共 120 个首轮记录全部写入，未留未开始 job；仅 4 completed，116 failed。原生 session 显示所有 116 个失败均包含 BigModel 错误 1113“余额不足或无可用资源包”，其中 7 个在最终错误前还出现 request timeout；runner 的最终 timeout 分类仍为 0。完成数为 T0 1、G0 2、G1 1，整体完整交付率 3.33%。全部 attempts 的延迟 p50/p75/p90/max 为 26.17/31.78/45.90/201.77 s；SDK 报告 input/output 为 261,028/10,254，cacheRead 205,952，工具调用 62。失败 attempt 的 usage 多数不完整，不能把这些合计当作整轮成本或三臂效率结论。
+
+盲审包仅含 1 条 prediction；裁定为 matched，对应 SymPy 根模块 `.stats import *` 遮蔽 Euler 常量 `E`。已裁定 precision 为 1/1，reference recall 为 1/72（1.39%）；按 arm 为 T0 0/24、G0 1/24、G1 0/24。没有 completed clean run，因此 clean FPR 未定义。唯一 finding 只使用文本工具，Graph-assisted 为 0。上述数字描述数据保全情况，不构成 G0 优于其他 arm 或 Graph 无效的证据。
+
+验收结论：Graph 工程与热性能门槛通过，reserve 准入通过，formal 的首轮不可变保全通过；formal 完成率和可比较质量/成本门槛失败。当前实验不得 resume、覆盖或选择性补跑。若补充模型余额后继续，必须新建 successor formal lock 和输出目录，并把本轮作为独立失败实验保留。文档收官后的 `npm run verify` 全部通过：核心 149、Pi 18、Tree-sitter 50、RealGolden 构造 20，共 237/237，另含三组 TypeScript 检查、demo 和 status。完整机器可读产物和五章报告位于 checkout 外 `../output/mergewarden2-v02-closeout-20260923/`。

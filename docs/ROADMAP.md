@@ -5,7 +5,7 @@
 | 版本 | 模块 | 验收门槛与当前状态 |
 |---|---|---|
 | v0.1.0 | 不可变提交快照、源码/差异/搜索、Pi 多供应商、final_only、预算/取消、报告、CLI | 离线实现与 v0.2 案例上的真实 GLM CLI smoke 已通过；原独立缺陷/修复 fixture 待验收；未打标签 |
-| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness、trace 归因与人工复核入口 | 工程路径、152 项测试与四组远端 CI 通过；真实 CLI smoke/重跑和完整 20+20 A/B 已执行（35/40 完整交付）；未观察到严格 Graph-assisted 发现，独立人工复核、追加重复与真实项目效果待验收 |
+| v0.2.0 | Python 语法事实、作用域/import resolver、Node SQLite、图工具、可取消构图；20 例 Golden schema/harness、trace 归因与人工复核入口 | Graph v4、prepared-only、8 快照热性能和 18/18 reserve 通过；RealGolden40 的 120 个正式首轮结果已保全，但供应商余额耗尽，仅 4/120 完成交付，不能比较三臂质量/成本；未观察到严格 Graph-assisted 发现，暂不打标签 |
 | v0.3.0 | VS Code 本机、引擎工作进程与版本化 IPC、配置/进度/取消/历史/证据/stale、VSIX | 后续实施；底层 staged/worktree 快照已提前作为引擎契约验证 |
 | v0.4.0 | WSL、诊断、资源限制、固定集和真实变更评测、受邀试用文档 | 后续实施；Windows+WSL 和真实模型验证均通过才可验收 |
 
@@ -33,4 +33,4 @@ LocAgent retrieval 是已完成一轮受控挑战的内部实验入口，见[冻
 
 增量图更新、其他语言、SSH/容器、原会话续审、增量结果、Jev shadow、PR 发布和 MCP/ACP 独立立项。仓库继续私有；不选择公共许可证、不发布 Marketplace、不实现自动修复或自动合并。
 
-RealGolden40 的后续实验先使用永久分离的 reserve tasks 确定统一预算，再生成绑定 corpus、runtime、prompt 的正式锁。正式 T0/G0/G1 只允许使用 READY 锁；之后才做开放标签裁定、质量比较与 repeated runs。新版本或替换样本需要新 corpus hash；Controlled Golden r2、既有 Graph/LocAgent 和历史结果保持独立。
+RealGolden40 已完成 18/18 reserve，并以 READY 锁启动正式 T0/G0/G1。全部 120 个 first-attempt 均已保全；第 5 次运行起供应商持续返回余额/资源包不足，故仅 4 次 completed，其余 116 次失败。本轮锁和输出不可恢复为“成功实验”，也不得充值后覆盖重跑。若继续，必须创建独立 successor lock、全新输出目录并将新结果与本轮并列报告；在取得可比较结果前不进入 repeated runs 或 v0.2 标签。新版本或替换样本需要新 corpus hash；Controlled Golden r2、既有 Graph/LocAgent 和历史结果保持独立。

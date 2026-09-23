@@ -48,6 +48,12 @@ npm run eval:real-live -- --live --corpus eval/real/corpora/mergewarden-real-pyt
 
 正式预测裁定先运行 `blind --runs latest.json --gold hidden/gold.jsonl --output packet.json --key-output private-key.json`。裁定者只收到匿名 prediction、源码定位/证据、hidden reference 与 fix evidence；arm、run key、Graph 调用、metrics 和 trace 只在私有 key 中。填写后用 `unblind --judgments judgments.json --key private-key.json --output judgments.jsonl` 恢复 hash-bound scoring identity。`score --runs latest.json --gold hidden/gold.jsonl --adjudications judgments.jsonl --output scores.json` 使用这些裁定记录。原始未匹配 prediction 一律保留 `unadjudicated`；另支持 `matched`、`duplicate`、`new_valid` 和 `false_positive`。新有效 finding 必须写明源码与引入证据，语义重复不增加 TP；输出逐 prediction mapping、reference recall、已裁定 precision 和未知项上下界。不同 arm/repeat 应分别评分，不能将 reserve 与正式结果合并。
 
+### 2026-09-23 Scheme A 正式实验结果
+
+Graph preparation 完成 40/40 个唯一 generation（31 ready、9 partial），8 快照 G0/G1 热查询 16/16 通过 p95 ≤ 500 ms、max ≤ 2000 ms 门槛。统一模型/预算的 reserve pilot 为 18/18 completed，随后生成 READY formal lock。正式 40 tasks × 3 arms 的 120 个 `first_attempt` 均已保全，但 BigModel 自第 5 次运行起持续返回 1113“余额不足或无可用资源包”，因此只有 4 completed、116 failed；不存在可以在原锁下继续的未开始 job。
+
+盲审只产生 1 条可裁定 prediction，结果 matched；precision 1/1，reference recall 1/72。完成数按 T0/G0/G1 为 1/2/1，唯一 finding 来自 G0 且为 text-only，Graph calls 为 0。该样本量不能用于三臂质量、成本或 Graph 增益结论。原 formal 输出必须保持不可变；充值后继续实验须创建 successor lock 和全新输出目录，不能把补跑结果合并或覆盖成本轮 first-attempt。
+
 ## 受控 Golden
 
 这是同一个 ReviewEngine 的内部工具消融，不是产品模式。`cases.json` 当前为 **controlled-python-v02-20-r2**：4 单文件、4 跨文件、2 多跳、2 import/scope 缺陷，8 个 clean 对照。每例保存仓库逻辑身份、真实 Git base/head SHA、源码、定位、严重性、行为和人工可读理由。r2 经用户授权的 Agent 静态复核修订，作者已看过 r1 模型结果；在 r2 模型调用前冻结，不是独立人工标注或未见结果的 holdout。
