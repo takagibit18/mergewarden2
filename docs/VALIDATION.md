@@ -345,3 +345,19 @@ completion 现只依赖最终提交、完整差异覆盖和无 model/timeout/too
 盲审包仅含 1 条 prediction；裁定为 matched，对应 SymPy 根模块 `.stats import *` 遮蔽 Euler 常量 `E`。已裁定 precision 为 1/1，reference recall 为 1/72（1.39%）；按 arm 为 T0 0/24、G0 1/24、G1 0/24。没有 completed clean run，因此 clean FPR 未定义。唯一 finding 只使用文本工具，Graph-assisted 为 0。上述数字描述数据保全情况，不构成 G0 优于其他 arm 或 Graph 无效的证据。
 
 验收结论：Graph 工程与热性能门槛通过，reserve 准入通过，formal 的首轮不可变保全通过；formal 完成率和可比较质量/成本门槛失败。当前实验不得 resume、覆盖或选择性补跑。若补充模型余额后继续，必须新建 successor formal lock 和输出目录，并把本轮作为独立失败实验保留。文档收官后的 `npm run verify` 全部通过：核心 149、Pi 18、Tree-sitter 50、RealGolden 构造 20，共 237/237，另含三组 TypeScript 检查、demo 和 status。完整机器可读产物和五章报告位于 checkout 外 `../output/mergewarden2-v02-closeout-20260923/`。
+
+## Codex 独立复审与外部成熟度对照 · 2026-09-23
+
+Codex 对 RealGolden40 的 40 个唯一 PR 逐例做静态复审，在不读取 gold 的阶段冻结 defect/clean 与 finding，随后统一揭盲裁定。`predictions.blind.jsonl` 的 SHA-256 为 `78367B9F8E112971D784EF1CE29878EC523F5D75D2B6C60CD6345D5886CB9358`。4 个样本可能受早期上下文影响，主结果采用剩余 36 个严格盲样本；完整 40 个样本另列作敏感性参考。
+
+| 口径 | TP / FP / FN / TN | Precision | Recall | F1 | Accuracy / clean FPR |
+|---|---:|---:|---:|---:|---:|
+| 任务级，盲 36 | 7 / 1 / 13 / 15 | 87.5% | 35.0% | 50.0% | 61.1% / 6.25% |
+| Finding 级，盲 36 | 6 / 2 / 14 / — | 75.0% | 30.0% | 42.9% | — |
+| Finding 级，全部 40 | 8 / 2 / 16 / — | 80.0% | 33.3% | 47.1% | — |
+
+盲样本中，本地缺陷 task recall 为 50%，finding recall 为 40%；untouched 1-hop 跨文件缺陷的 task/finding recall 均为 12.5%。主要形态是高 precision、低 recall：已报告 finding 多数成立，但跨文件和项目不变量类缺陷漏检明显。复审接口没有暴露可核验的精确 token、逐例延迟和工具调用轮次；整批墙钟约 37 分钟且包含一次中止尝试，不能作为模型性能基准。
+
+外部对照只判断量级，不做排行榜式比较：[S11] 的 Alibaba OpenCodeReview 在 AACR-Bench 上按模型报告 finding F1 17.9%–25.1%、precision 25.2%–37.8%、recall 11.7%–20.0%，但其 benchmark 为 200 个真实 PR、50 个项目、10 种语言，并采用自己的位置/语义匹配协议；本项目样本更小、更窄且 gold 仍主要由 Agent 审核，不能据表面数字宣称领先。[S12] 的 CodeGraph 报告 compiler-oracle 边精度 93.8%–98.7%，who-references precision/recall 0.75/0.87 和约 21 ms 查询延迟；本项目热查询同属实用毫秒级，但没有 compiler-oracle 边精度证明。[S10] 的 LocAgent 报告最高 92.7% file-level localization accuracy 和约 86% 成本下降；本项目只完成机制适配，Graph-assisted finding 仍为 0，不能声称复现其增益。
+
+综合验收为 **实验工程收官 / conditional pass**：Graph 工程、协议、热性能和结果保全通过；独立复审 precision 与 clean FPR 尚可；跨文件 recall、独立人工 holdout、Graph 边正确性基准和 Graph 增量价值仍未达成熟方案证据强度。完整复审与成熟度对照报告位于 checkout 外 `../output/mergewarden2-codex-review-20260923/`。
