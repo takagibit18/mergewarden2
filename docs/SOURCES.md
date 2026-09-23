@@ -1,6 +1,6 @@
 # 参考来源与核对边界
 
-整理：2026-09-20。外部设计只提供参照，不构成本项目性能或生产能力证明。
+整理：2026-09-23。外部设计只提供参照，不构成本项目性能或生产能力证明。
 
 ## [S1] Pi SDK / ResourceLoader / Extension 接口
 
@@ -67,6 +67,26 @@ https://github.com/alibaba/open-code-review/tree/a003b9341a65130b024829101ea3549
 许可：https://github.com/gersteinlab/LocAgent/blob/4935b557326c154bad8e8dcf3747cc8d32d1f387/LICENSE （Apache License 2.0）
 
 本次核对 directory/file/class/function 层级、contains/imports/invokes/inherits 关系、实体搜索和多跳遍历。MergeWarden 未复制其图构建代码：对固定机制做适配，并保留不可变快照、Tree-sitter、保守唯一解析、源码证据、资源边界和可恢复发布。逐项 faithful/adapted/not used 状态及实现证据见 `eval/locagent/entity-graph-v4-fidelity.json`；schema v4 决策见 ADR-0014。
+
+## [S11] Alibaba OpenCodeReview / AACR-Bench
+
+OpenCodeReview：https://github.com/alibaba/open-code-review/blob/main/README.md
+
+论文：https://arxiv.org/abs/2608.09290
+
+AACR-Bench：https://github.com/alibaba/aacr-bench
+
+指标定义：https://github.com/alibaba/aacr-bench/blob/main/docs/metrics.md
+
+2026-09-23 核对。公开 benchmark 描述为 200 个真实 PR、50 个项目、10 种语言；OpenCodeReview 论文表 3 按模型报告 finding F1 17.9%–25.1%、precision 25.2%–37.8%、recall 11.7%–20.0%，并报告相同模型相对 Claude Code 的 token/延迟优势。README 的 1,505 个 expert-verified ground-truth issues 与 AACR-Bench 当前 README 的 2,145 个 review comments 不是同一口径，引用时分别保留。其语义和位置匹配、数据规模、语言范围均不同于 RealGolden40，不直接比较排名。
+
+## [S12] CodeGraph README / benchmark
+
+README：https://github.com/sina-parsania/CodeGraph/blob/main/README.md
+
+Benchmark：https://github.com/sina-parsania/CodeGraph/blob/main/docs/BENCHMARK.md
+
+2026-09-23 核对。这里把用户所称 CodeGraph 解释为 `sina-parsania/CodeGraph`。公开结果包括 93.8%–98.7% 的 compiler-oracle 图边精度、68 个 who-references 问题上的 precision 0.75 / recall 0.87 / 99% answer rate / 227 平均响应 bytes，以及 benchmark 中约 21 ms 的查询延迟。它衡量图边和引用检索，不等同于代码审查 finding precision/recall；本项目尚无同口径 compiler-oracle 基准。
 
 ## 本次仓库搭建的版本固定
 

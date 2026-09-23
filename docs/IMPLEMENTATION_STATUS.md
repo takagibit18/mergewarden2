@@ -4,6 +4,8 @@ Python 图已升级为 schema v4 的 LocAgent 风格实体图：directory/file/c
 
 RealGolden40 的 18/18 reserve pilot 完成交付并生成 READY 正式锁。正式 T0/G0/G1 计划的 120 个 first-attempt 均已落盘，但模型供应商从第 5 次运行起持续返回 1113“余额不足或无可用资源包”；仅 4/120 完成交付，116 次失败，不能原地重试或覆盖。唯一可裁定 finding 与 reference 匹配，但 1/72 的 reference recall、1/1 precision 和各 arm 差异都不具备质量比较意义。当前结论是工程门槛通过、正式实验保全通过、运行完成率门槛失败；v0.2 不打标签。
 
+随后使用 Codex 对 40 个唯一 PR 做独立静态复审：先冻结 prediction，再揭盲裁定。排除 4 个可能受早期上下文影响的样本后，36 个严格盲样本的任务级 precision/recall/F1 为 87.5%/35.0%/50.0%，finding 级为 75.0%/30.0%/42.9%，clean FPR 为 6.25%。结果显示当前审查形态偏向低噪声、低召回，untouched 1-hop 跨文件缺陷 recall 仅 12.5%。该复审没有 T0/G0/G1 分组，也未暴露精确 token、单次延迟和工具调用统计，只能补充总体质量判断，不能证明 Graph 增益。完整复审产物保存在 checkout 外 `../output/mergewarden2-codex-review-20260923/`。
+
 RealGolden 三臂 harness 已分离“审查完成”与“结构导航可用性”：G0/G1 共享同一中性 `NAVIGATION_POLICY_PROMPT`，各自 capability 只说明工具名、调用关系和机械语义；T0 不接收该 system policy 且仍只暴露四个文本/提交工具。Graph/retrieval 错误保留显式 tool error/warning、`metrics.navigation` 诊断和报告限制说明，但不再单独 poison 已满足差异覆盖、源码证据、最终提交与交付门槛的业务完成态。正式 RealGolden 锁固定 `first_attempt`，reserve 保留 operational retry；盲审包将 arm、run key、Graph 调用与 trace 保留在私有映射中，不展示给裁定者。
 
 实验性 LocAgent retrieval scaffold 已接入同一 ReviewEngine，限定为内部 T0/G0/G1 配置，产品工具默认不变。固定 r2 的 8-case × 3-arm GLM 对照已完成，完整交付 T0 7/8、G0 4/8、G1 5/8；按 accepted findings 评分 TP 为 5/5/4，FP 均为 0。Graph-assisted 和 novel→source 转化均为 0，未启动 full 20-case。原始运行固定在 c9584d0，后续边界/trace 修正单独记录；[协议与适配边界](experiments/LOCAGENT_REPLICATION.md)。下文 r1/r2 初次验收数字为历史阶段记录。
