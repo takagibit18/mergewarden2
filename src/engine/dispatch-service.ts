@@ -115,7 +115,7 @@ export class StructuralDispatch implements DispatchBridge {
         if (page.status !== "ok" || page.snapshotId !== request.snapshotId || page.revision !== "head" || page.path !== candidate.path || typeof page.text !== "string") throw Error("Invalid host source result");
         const ref = fullEvidence(page as unknown as DispatchSource);
         if (ref.startLine !== startLine || ref.endLine > endLine || ref.endLine < startLine || createHash("sha256").update(page.text).digest("hex") !== ref.contentSha256) throw Error("Host source integrity mismatch");
-        const source = { ...ref, evidenceRefId: evidenceRefId(ref), text: page.text };
+        const source = { ...ref, evidenceRefId: evidenceRefId(ref), text: page.text, entity: candidate };
         pack.sources.push(source);
         if (bytes(pack) > DISPATCH_LIMITS.maxPackageBytes - 2048) { pack.sources.pop(); pack.omitted.push(window + " (package byte limit)"); }
         if (startLine > candidate.startLine || endLine < candidate.endLine) pack.omitted.push(`${candidate.path}: definition ${candidate.startLine}-${candidate.endLine}, shown window ${startLine}-${endLine}`);

@@ -15,7 +15,7 @@ export interface InvestigationRequest extends DispatchTrigger {
 }
 export interface DispatchEntity { entityId: string; snapshotId: string; path: string; name: string; qualifiedName: string; kind: string; startLine: number; endLine: number; depth?: number }
 export type DispatchTerminal = "context_returned" | "no_definite_relation" | "anchor_missing" | "anchor_ambiguous" | "coverage_limited" | "budget_exhausted" | "cancelled" | "error";
-export interface DispatchSource extends EvidenceRef { evidenceRefId: string; text: string }
+export interface DispatchSource extends EvidenceRef { evidenceRefId: string; text: string; entity: DispatchEntity }
 export interface ContextPackage {
   version: typeof DISPATCH_VERSION; origin: "host_dispatch"; requestId: string; runId: string; snapshotId: string;
   generationId?: string; template: DispatchRoute; anchor?: DispatchEntity;
