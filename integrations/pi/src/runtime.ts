@@ -1,3 +1,4 @@
+import { annotateResult, isObject } from "../../../src/engine/tool-result.ts";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import type { TSchema } from "typebox";
@@ -54,7 +55,7 @@ export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], mo
   const result = await createAgentSession({ cwd: options.evaluation ? options.stateDir : options.runDir, agentDir: options.runDir, modelRuntime, model,
     sessionManager: manager, settingsManager, resourceLoader, noTools: "builtin", tools: [...allowlist],
     customTools: options.tools.map(t => ({ name: t.name, label: t.name, description: t.description, parameters: t.schema as TSchema, executionMode: "sequential" as const,
-      async execute(_id, params) { if (!allowlist.has(t.name)) throw Error("Tool is outside the immutable review allowlist"); const value = await t.execute(params); return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; } })) });
+      async execute(_id, params) { if (!allowlist.has(t.name)) throw Error("Tool is outside the immutable review allowlist"); const value = await t.execute(params); return { content: [{ type: "text" as const, text: JSON.stringify(isObject(value) ? annotateResult(value) : value) }], details: value }; } })) });
   const session = result.session;
   const journal = new PiSessionJournal(manager, { durable: true, onFailure: () => { void session.abort().catch(() => undefined); } });
   try {

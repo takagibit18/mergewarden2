@@ -1,3 +1,4 @@
+import { parseToolResult, annotateResult } from "../../../src/engine/tool-result.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { ROUTING_THRESHOLDS, ROUTING_VERSION } from "../../../src/engine/routing-contracts.ts";
 import type { RoutingContext, RoutingMetrics } from "../../../src/engine/routing-contracts.ts";
@@ -118,7 +119,8 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       return;
     });
     pi.on("tool_result", event => {
-      const result = record(event.details);
+      const result = parseToolResult(event.content).value;
+      if (!result) return;
       const hints: string[] = [];
       const route = current();
       if (STRUCTURAL_TOOLS.includes(event.toolName) && route) {
@@ -167,7 +169,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
           }
         }
       }
-      const verified = observeResult(data.observation, event, context.snapshotId, route?.routeId, data.ordinal);
+      const verified = observeResult(data.observation, { ...event, details: result }, context.snapshotId, route?.routeId, data.ordinal);
       if (context.variant === "pi_structural_v2_synthesize") {
         for (const source of verified) {
           const key = JSON.stringify([source.routeId, source.path]);
@@ -178,7 +180,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         }
       }
       persist();
-      if (hints.length) return { content: [...event.content, ...hints.map(text => ({ type: "text" as const, text }))] };
+      if (hints.length && !event.isError && result.status !== "error") return { content: [{ type: "text" as const, text: JSON.stringify(annotateResult(result, hints.map(text => ({ kind: text === IMPACT_SYNTHESIS_CHECKPOINT ? "impact_synthesis" : "structural_investigation", routeId: (route ?? data.routes.findLast(r => r.activationOrdinal !== undefined))?.routeId, text })))) }] };
       return;
     });
   };

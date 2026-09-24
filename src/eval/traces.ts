@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { decodePiTrace, issue, type ToolCall } from "./provenance/decode.ts";
+export { decodePiTrace, type ToolCall, type DecodedTrace, type TraceIssue, type TraceUsage } from "./provenance/decode.ts";
 import type { FindingCandidate, EvidenceRef } from "../domain/contracts.ts";
 type ObjectValue = Record<string, unknown>;
 const object = (v: unknown): v is ObjectValue => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -9,81 +10,6 @@ const ok = (call: ToolCall, snapshotId: string) => !call.isError && call.respons
 const position = (call: ToolCall) => call.resultEvent ?? Infinity;
 const overlap = (a: number, b: number, c: number, d: number) => a <= d && c <= b;
 const canonical = (v: unknown): string => JSON.stringify(v, (_key, value: unknown) => object(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
-export interface ToolCall {
-  id: string; name: string; args: ObjectValue; ordinal: number; callEvent: number; callEntryId: string;
-  resultEvent?: number; resultEntryId?: string; response?: ObjectValue; resultText: string; isError: boolean;
-}
-export interface TraceUsage {
-  assistantResponses: number; reportedInputTokens: number; reportedOutputTokens: number; reportedTotalTokens: number;
-  cacheReadTokens: number; cacheWriteTokens: number; interruptedResponses: number; missingUsageResponses: number; incompleteUsage: boolean;
-}
-export interface DecodedTrace { sha256: string; calls: ToolCall[]; issues: string[]; ignoredBranchEntries: number; usage: TraceUsage }
-
-/** Read only model-visible tool calls/results from the last native branch. Never read model self-attribution or thinking. */
-export function decodePiTrace(jsonl: string): DecodedTrace {
-  const trace: DecodedTrace = { sha256: createHash("sha256").update(jsonl).digest("hex"), calls: [], issues: [], ignoredBranchEntries: 0,
-    usage: { assistantResponses: 0, reportedInputTokens: 0, reportedOutputTokens: 0, reportedTotalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, interruptedResponses: 0, missingUsageResponses: 0, incompleteUsage: false } };
-  const entries: ObjectValue[] = [];
-  for (const [index, line] of jsonl.trim().split(/\r?\n/).entries()) {
-    if (!line.trim()) continue;
-    try { const entry: unknown = JSON.parse(line); if (!object(entry)) throw Error(); entries.push(entry); }
-    catch { trace.issues.push(`Invalid native JSONL at line ${index + 1}`); }
-  }
-  const indexed = new Map<string, ObjectValue>();
-  for (const entry of entries) if (typeof entry.id === "string") {
-    if (indexed.has(entry.id)) trace.issues.push("Duplicate native entry ID");
-    indexed.set(entry.id, entry);
-  }
-  const branch: ObjectValue[] = []; const visited = new Set<string>();
-  let entry = entries.findLast(e => typeof e.id === "string");
-  while (entry) {
-    const id = String(entry.id); if (visited.has(id)) { trace.issues.push("Native branch cycle"); break; }
-    visited.add(id); branch.push(entry);
-    if (entry.parentId === null || entry.parentId === undefined) break;
-    entry = indexed.get(String(entry.parentId)); if (!entry) trace.issues.push("Missing native branch parent");
-  }
-  if (!branch.length) trace.issues.push("No active native branch");
-  trace.ignoredBranchEntries = indexed.size - branch.length; branch.reverse();
-  const calls = new Map<string, ToolCall>();
-  for (const [event, e] of branch.entries()) {
-    if (e.type !== "message" || !object(e.message)) continue;
-    const message = e.message;
-    if (message.role === "assistant") {
-      const usage = message.usage; trace.usage.assistantResponses++;
-      if (["aborted", "error"].includes(String(message.stopReason))) trace.usage.interruptedResponses++;
-      if (!object(usage) || ![usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0)) trace.usage.missingUsageResponses++;
-      else {
-        trace.usage.reportedInputTokens += Number(usage.input) + Number(usage.cacheRead) + Number(usage.cacheWrite);
-        trace.usage.reportedOutputTokens += Number(usage.output); trace.usage.reportedTotalTokens += Number(usage.totalTokens);
-        trace.usage.cacheReadTokens += Number(usage.cacheRead); trace.usage.cacheWriteTokens += Number(usage.cacheWrite);
-      }
-    }
-    if (message.role === "assistant") for (const block of records(message.content)) {
-      if (block.type !== "toolCall") continue;
-      if (typeof block.id !== "string" || typeof block.name !== "string" || !object(block.arguments) || calls.has(block.id)) { trace.issues.push("Invalid/duplicate tool call"); continue; }
-      const call: ToolCall = { id: block.id, name: block.name, args: block.arguments, ordinal: trace.calls.length + 1, callEvent: event, callEntryId: String(e.id), resultText: "", isError: false };
-      calls.set(call.id, call); trace.calls.push(call);
-    }
-    if (message.role === "toolResult") {
-      const call = calls.get(String(message.toolCallId));
-      if (!call || call.resultEvent !== undefined || call.name !== message.toolName) { trace.issues.push("Orphan/duplicate/mismatched tool result"); continue; }
-      call.resultEvent = event; call.resultEntryId = String(e.id); call.isError = message.isError === true;
-      call.resultText = records(message.content).filter(b => b.type === "text" && typeof b.text === "string").map(b => String(b.text)).join("\n");
-      try {
-        const blocks = records(message.content).filter(b => b.type === "text" && typeof b.text === "string");
-        // Routing appends advisory context as separate blocks. Only the original
-        // JSON block is tool data; guidance never becomes evidence or attribution.
-        const routed = blocks.length > 1 && blocks.slice(1).every(b => String(b.text).startsWith("[Structural investigation recommended]\n") || String(b.text).startsWith("Structural investigation is degraded.") || String(b.text).startsWith("[Structural investigation]\n") || String(b.text).startsWith("[Impact synthesis checkpoint]\n"));
-        const response: unknown = JSON.parse(routed ? String(blocks[0]!.text) : call.resultText);
-        if (!object(response)) throw Error(); call.response = response;
-      }
-      catch { trace.issues.push(`Non-JSON tool response: ${call.id}`); }
-    }
-  }
-  trace.usage.incompleteUsage = trace.usage.interruptedResponses > 0 || trace.usage.missingUsageResponses > 0;
-  return trace;
-}
-
 export type DiscoveryPath = "text_only" | "graph_assisted" | "ambiguous";
 export interface AttributionChain {
   neighborCallId: string; neighborToolOrdinal: number; neighborEntryId: string;
@@ -113,7 +39,7 @@ function exposesPath(call: ToolCall, path: string, snapshotId: string) {
 }
 export function analyzeTrace(input: { runKey: string; snapshotId: string; findings: FindingCandidate[]; jsonl: string }) {
   const trace = decodePiTrace(input.jsonl); const calls = trace.calls; const snapshotId = input.snapshotId;
-  for (const call of calls) if (call.response?.snapshotId !== undefined && call.response.snapshotId !== snapshotId) trace.issues.push(`Cross-snapshot tool result: ${call.id}`);
+  for (const call of calls) if (call.response?.snapshotId !== undefined && call.response.snapshotId !== snapshotId) trace.issues.push(issue("cross_snapshot", `Cross-snapshot tool result: ${call.id}`));
   const graphs = calls.filter(graph); const lookups = graphs.filter(c => c.name === "graph_lookup"); const neighbors = graphs.filter(c => c.name === "graph_neighbors");
   const hits = lookups.filter(c => ok(c, snapshotId) && items(c).some(s => s.snapshotId === snapshotId && typeof s.id === "string"));
   const lookupConversions = new Set<string>();

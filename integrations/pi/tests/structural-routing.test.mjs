@@ -112,7 +112,7 @@ function hooks(snapshotId='s',entries=[],allowed=new Set([...TEXT_TOOLS,...STRUC
  const routing=createStructuralRouting({variant,snapshotId,changedPaths:['app.py'],onBlockedCall:()=>blocked++},allowed);
  const pi={on:(name,fn)=>handlers[name]=fn,appendEntry:(customType,data)=>saved.push({type:'custom',customType,data:structuredClone(data)}),getActiveTools:()=>active,setActiveTools:names=>active=names,getAllTools:()=>[...allowed].map(name=>({name}))};
  routing.extension(pi);handlers.session_start({}, {sessionManager:{getBranch:()=>entries}});
- const result=(name,details,input={})=>{handlers.tool_call({toolName:name,input});return handlers.tool_result({toolName:name,details:{snapshotId,status:'ok',...details},input,content:[]});};
+ const result=(name,details,input={})=>{handlers.tool_call({toolName:name,input});return handlers.tool_result({toolName:name,details:{snapshotId,status:'ok',...details},input,content:[{type:'text',text:JSON.stringify({snapshotId,status:'ok',...details})}]});};
  return {handlers,result,saved,routing,active:()=>active,blocked:()=>blocked,pi};
 }
 test('pagination caches offsets, does not mistake partial signature for removal, and restores same-snapshot state without hints',()=>{
@@ -170,7 +170,7 @@ test('two episodes share six-call total budget across restore, then suppress dis
 for (const variant of ['pi_structural_v2_investigate','pi_structural_v2_synthesize']) test(variant+': native payload uses shared activation and budgets; synthesis appears only for C',async t=>{
  const r=await run(t,{...signature,routing:variant,steps:[diff(),entity(),traverse,source('caller.py'),source('caller.py'),submit()]});
  assert.equal(r.result.report.status,'completed');
- const texts=r.rows.filter(r=>r.message?.role==='toolResult').flatMap(r=>r.message.content).map(c=>c.text??'');
+ const texts=r.rows.filter(r=>r.message?.role==='toolResult').flatMap(r=>r.message.content).flatMap(c=>JSON.parse(c.text)._mergewarden?.notices?.map(n=>n.text)??[]);
  assert.equal(texts.filter(t=>t.startsWith('[Structural investigation]')).length,1);
  assert.equal(texts.filter(t=>t.startsWith('[Impact synthesis checkpoint]')).length,variant.endsWith('synthesize')?1:0);
  assert.equal(r.manifest.metrics.graphToolCalls,2);assert.equal(r.requests.length,7);

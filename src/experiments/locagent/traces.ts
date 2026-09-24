@@ -1,3 +1,4 @@
+import { issue } from "../../eval/provenance/decode.ts";
 import {decodePiTrace, analyzeTrace, type ToolCall} from '../../eval/traces.ts';
 import type {FindingCandidate} from '../../domain/contracts.ts';
 type Row=Record<string,any>;
@@ -8,7 +9,7 @@ const canonical=(v:unknown):string=>JSON.stringify(v,(_k,x)=>x&&typeof x==='obje
 export function analyzeRetrieval(input:{runKey:string;snapshotId:string;findings:FindingCandidate[];jsonl:string}){
  const trace=decodePiTrace(input.jsonl),calls=trace.calls;
  const ok=(c:ToolCall)=>!c.isError&&c.response?.snapshotId===input.snapshotId&&['ok','parse_incomplete'].includes(String(c.response.status));
- for(const c of calls)if(c.response?.snapshotId!==undefined&&c.response.snapshotId!==input.snapshotId)trace.issues.push('Cross-snapshot result: '+c.id);
+ for(const c of calls)if(c.response?.snapshotId!==undefined&&c.response.snapshotId!==input.snapshotId)trace.issues.push(issue('cross_snapshot','Cross-snapshot result: '+c.id));
  const search=calls.filter(c=>['search_entity','graph_lookup'].includes(c.name));
  const traversal=calls.filter(c=>['traverse_graph','graph_neighbors'].includes(c.name));
  const graphs=[...search,...traversal].sort((a,b)=>a.ordinal-b.ordinal);
