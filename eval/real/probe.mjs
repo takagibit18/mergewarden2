@@ -44,7 +44,7 @@ for(const task of selection.tasks) {
     const reviewed=await new ReviewEngine(o=>createPiRuntime(o,runtime)).run({repositoryPath:repository,stateDir:state,input:{kind:'commits',base:task.base_sha,head:task.reviewed_sha},model,timeoutMs:600000,maxToolCalls:1000,evaluation:{tools:arm}});
     if(reviewed.kind!=='report'||reviewed.report.snapshot.id!==entry.snapshotId)throw Error('Result/snapshot drift');
     const native=await readFile(join(state,'runs',reviewed.runId,'session.jsonl'),'utf8');
-    entry.runs.push({arm,runId:reviewed.runId,status:reviewed.report.status,latencyMs:performance.now()-started,report:reviewed.report,manifest:await readRun(state,reviewed.runId),trace:analyzeRetrieval({runKey:task.case_id+'/'+arm,snapshotId:entry.snapshotId,findings:reviewed.report.findings,jsonl:native})});
+    entry.runs.push({arm,runId:reviewed.runId,status:reviewed.report.status,latencyMs:performance.now()-started,report:reviewed.report,manifest:await readRun(state,reviewed.runId),trace:analyzeRetrieval({runKey:task.case_id+'/'+arm,snapshotId:entry.snapshotId,findings:reviewed.report.findings,changedPaths:Object.keys(reviewed.report.coverage),jsonl:native})});
     await writeJson(join(output,task.case_id+'.json'),entry);
    }
   }

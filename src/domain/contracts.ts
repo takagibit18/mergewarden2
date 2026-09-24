@@ -60,6 +60,7 @@ export interface ReviewReport {
 export type EventPayload =
   | { type: "run.started"; snapshot: SnapshotIdentity; deliveryPolicy: DeliveryPolicy; units: string[] }
   | { type: "candidates.submitted"; channel: DeliveryPolicy; candidates: FindingCandidate[] }
+  | { type: "final_batch.accepted"; candidates: FindingCandidate[]; reviewedPaths: string[]; reason: string }
   | { type: "candidate.decided"; candidateId: string; disposition: "accepted" | "rejected"; reason: string }
   | { type: "unit.finished"; unitId: string; outcome: "done" | "failed" }
   | { type: "run.finished"; outcome: "completed" | "partial" | "failed" | "cancelled"; summary: string };

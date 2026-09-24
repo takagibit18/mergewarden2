@@ -1,9 +1,11 @@
+import { annotateResult, isObject } from "../../../src/engine/tool-result.ts";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import type { TSchema } from "typebox";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { RuntimeFactory } from "../../../src/engine/contracts.ts";
 import { createReviewExtension } from "./extension.ts";
+import { createStructuralRouting, TEXT_TOOLS, STRUCTURAL_TOOLS } from "./structural-routing.ts";
 import { registerBigModel } from "./bigmodel.ts";
 import { PiSessionJournal } from "./journal.ts";
 import { BASE_SYSTEM_PROMPT, GRAPH_CAPABILITY_PROMPT, NAVIGATION_POLICY_PROMPT } from "../../../src/engine/prompt.ts";
@@ -37,11 +39,12 @@ export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], mo
   if (!model) throw new Error("Configured provider/model is not in the configured review catalog; no fallback is allowed");
   const settingsManager = SettingsManager.inMemory();
   const allowlist = new Set(options.tools.map(t => t.name));
-  const structuralCapability = allowlist.has("graph_lookup") ? GRAPH_CAPABILITY_PROMPT : allowlist.has("search_entity") || allowlist.has("traverse_graph") ? LOCAGENT_CAPABILITY_PROMPT : undefined;
+  const routing = options.routing ? createStructuralRouting(options.routing, allowlist) : undefined;
+  const structuralCapability = routing ? undefined : allowlist.has("graph_lookup") ? GRAPH_CAPABILITY_PROMPT : allowlist.has("search_entity") || allowlist.has("traverse_graph") ? LOCAGENT_CAPABILITY_PROMPT : undefined;
   const resourceLoader = new DefaultResourceLoader({ cwd: options.runDir, agentDir: options.runDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     systemPromptOverride: () => BASE_SYSTEM_PROMPT + (structuralCapability ? "\n" + NAVIGATION_POLICY_PROMPT + "\n" + structuralCapability : ""),
-    appendSystemPromptOverride: () => [], extensionFactories: [createReviewExtension(allowlist)] });
+    appendSystemPromptOverride: () => [], extensionFactories: [createReviewExtension(allowlist), ...(routing ? [routing.extension] : [])] });
   await resourceLoader.reload();
   // Opening an exclusively created empty file sets Pi's flushed state via its public API.
   // No synthetic assistant message, SDK patch, or second conversation log is needed.
@@ -52,18 +55,22 @@ export async function createPiRuntime(options: Parameters<RuntimeFactory>[0], mo
   const result = await createAgentSession({ cwd: options.evaluation ? options.stateDir : options.runDir, agentDir: options.runDir, modelRuntime, model,
     sessionManager: manager, settingsManager, resourceLoader, noTools: "builtin", tools: [...allowlist],
     customTools: options.tools.map(t => ({ name: t.name, label: t.name, description: t.description, parameters: t.schema as TSchema, executionMode: "sequential" as const,
-      async execute(_id, params) { const value = await t.execute(params); return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; } })) });
+      async execute(_id, params) { if (!allowlist.has(t.name)) throw Error("Tool is outside the immutable review allowlist"); const value = await t.execute(params); return { content: [{ type: "text" as const, text: JSON.stringify(isObject(value) ? annotateResult(value) : value) }], details: value }; } })) });
   const session = result.session;
   const journal = new PiSessionJournal(manager, { durable: true, onFailure: () => { void session.abort().catch(() => undefined); } });
   try {
     if (result.extensionsResult.errors.length) throw new Error("Review extension failed to initialize");
     await session.bindExtensions({ onError: () => { void session.abort().catch(() => undefined); } });
-    if (JSON.stringify(session.getActiveToolNames().sort()) !== JSON.stringify([...allowlist].sort())) throw new Error("Unexpected active tool set");
+    const active = session.getActiveToolNames();
+    if (routing) {
+      if (active.some(t => !allowlist.has(t)) || TEXT_TOOLS.some(t => !active.includes(t)) || STRUCTURAL_TOOLS.some(t => active.includes(t)) || session.getAllTools().some(t => !allowlist.has(t.name))) throw Error("Unexpected routing tool set");
+    } else if (JSON.stringify(active.sort()) !== JSON.stringify([...allowlist].sort())) throw new Error("Unexpected active tool set");
     journal.checkpoint();
   } catch (error) { session.dispose(); throw error; }
   // Registered after AgentSession's awaited listener: native append has completed here.
   const unsubscribe = session.agent.subscribe(event => { if (event.type === "message_end" || event.type === "agent_end") journal.checkpoint(); });
   return { journal,
+    ...(routing ? { routingMetrics: routing.metrics } : {}),
     configuration() { return { systemPrompt: session.systemPrompt, thinkingLevel: session.thinkingLevel, modelApi: model.api, modelBaseUrl: model.baseUrl, modelMaxTokens: model.maxTokens }; },
     async prompt(text, signal) {
       signal.throwIfAborted();

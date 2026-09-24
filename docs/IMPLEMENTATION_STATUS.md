@@ -1,4 +1,16 @@
-# 当前实现状态 · 2026-09-23
+# 当前实现状态 · 2026-09-24
+
+当前开发基线继承本地 Routing v1 / ABC 提交 c857941、26e6535，未回退到远端 main。Routing 产品默认 none；pi_structural_v1、pi_structural_v2_investigate、pi_structural_v2_synthesize 的触发、预算与 B/C 卡措辞保持冻结。Graph v4、prepared-only、RealGolden 和模型配置未修改。
+
+当前运行时已统一单 JSON 工具结果与 `_mergewarden` 宿主 metadata；G0/G1 共用 Attribution v3 的 model-visible provenance；普通失败提交不会全局污染后续完整 accepted evidence。每个 run 的 Evidence Registry 仅展开模型明确选择的证据 ID，最终 Finding/报告仍是完整 EvidenceRef。final_only 接受改为一个 final_batch.accepted 事件，任何持久化失败禁止重试与成功交付，历史事件仍可 restore。
+
+P0 先通过 307 项完整验证与 34 条历史会话双次字节稳定重放，才开始 Registry。新增真实 Pi SDK 离线链路覆盖 ID、纠错、无自动证据、先文本后 Graph、partial positive、错误回退以及两种持久化故障。完整最终验证、历史差异和可选四例交付 smoke 见 [VALIDATION](VALIDATION.md)；此轮是工程契约验收，不是新的质量实验或 formal/reserve 运行。
+
+最终完整验证 328 passed / 0 failed / 0 skipped。四个 limited-live 名额中 3 个完成、1 个首工具前连接失败；完成运行的显式 Evidence ID 均无损进入报告，P2/P3 保持 text_only、P4 为 incoming-call assisted。P2 额外 unsupported claim 保留为语义风险，不影响工程契约与正确性标签的分离。未启动 reserve/formal。
+
+当前数据流见 [Current Runtime Contract](ARCHITECTURE.md#current-runtime-contract--2026-09-24)，精确定义见 [ADR 0015](adr/0015-evidence-attribution-contract.md) 和 [Attribution v3 protocol](../eval/attribution-v3.md)。
+
+## 历史状态 · 2026-09-23
 
 Python 图已升级为 schema v4 的 LocAgent 风格实体图：directory/file/class/function 与 CONTAINS/IMPORTS/CALLS/INHERITS；method 作为 function 子类，普通名称引用不建图。默认 core 覆盖 changed 与生产 Python，all 为显式独立 generation。两遍流式 resolver、逐文件关系 checkpoint、聚合关系和无 facts/payload 的紧凑最终库已落地。prepared-only 协议把构图和模型 loop 永久分离，并以 receipt/lock 绑定 generation、源码快照和 runtime。8 个固定真实快照的 core 为 7 ready + 1 预算内 partial；G0/G1 热查询的 p95/max 均低于 500/2000 ms 门槛。最终完整验证 237/237 通过，规模、性能、分层和引用消融数据见 VALIDATION。
 

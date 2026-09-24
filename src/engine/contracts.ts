@@ -6,7 +6,7 @@ export interface ReviewOptions {
   repositoryPath: string; stateDir: string; input?: ReviewInput; rerunId?: string;
   model: ModelSelection; timeoutMs?: number; maxToolCalls?: number; signal?: AbortSignal;
   /** Internal ablation only; never exposed as a product mode. */
-  evaluation?: { tools: "text-only" | "text+graph" | "text+locagent"; graphMode?: "lazy" | "prepared_only"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig };
+  evaluation?: { tools: "text-only" | "text+graph" | "text+locagent"; graphMode?: "lazy" | "prepared_only"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig; routing?: import("./routing-contracts.ts").RoutingMode; routingBudget?: Partial<import("./routing-contracts.ts").RoutingBudget>; routingTextOnly?: boolean };
 }
 export interface RuntimeTool { name: string; description: string; schema: Record<string, unknown>; execute(input: unknown): Promise<unknown> }
 export interface ReviewRuntime {
@@ -15,10 +15,13 @@ export interface ReviewRuntime {
   abort(): Promise<void>;
   dispose(): void;
   usage(): { input: number; output: number; total: number };
+  routingMetrics?(): import("./routing-contracts.ts").RoutingMetrics;
   configuration?(): { systemPrompt: string; thinkingLevel: string; modelApi: string; modelBaseUrl: string; modelMaxTokens: number };
 }
-export type RuntimeFactory = (options: { repositoryPath: string; runDir: string; stateDir: string; model: ModelSelection; tools: RuntimeTool[]; evaluation?: boolean }) => Promise<ReviewRuntime>;
+export type RuntimeFactory = (options: { repositoryPath: string; runDir: string; stateDir: string; model: ModelSelection; tools: RuntimeTool[]; evaluation?: boolean; routing?: import("./routing-contracts.ts").RoutingContext }) => Promise<ReviewRuntime>;
 export interface FinalSubmission { summary: string; reviewedPaths: string[]; findings: FindingCandidate[] }
+/** Model transport; normalization produces the unchanged self-contained domain contract. */
+export interface FinalSubmissionInput { summary: string; reviewedPaths: string[]; findings: import("../application/evidence-registry.ts").FindingInput[] }
 export interface RunManifest {
   schemaVersion: 1; runId: string; snapshotId: string; repositoryPath: string; model: ModelSelection;
   configurationFingerprint: string; limits: { timeoutMs: number; maxToolCalls: number };
@@ -30,6 +33,7 @@ export interface RunManifest {
     toolCalls: number; toolRequests: number; toolAccepted: number; toolExecuted: number; toolRejected: number;
     graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"];
     navigation: { attempted: boolean; degraded: boolean; errors: number };
+    routing?: import("./routing-contracts.ts").RoutingMetrics;
   };
   toolExposure?: "text-only" | "text+graph" | "text+locagent";
   runtimeConfiguration?: ReturnType<NonNullable<ReviewRuntime["configuration"]>>;

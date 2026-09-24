@@ -99,8 +99,8 @@ test('cancellation stops admission and does not wait forever for an ignoring run
 
 test('poisoned journal stops delivery and never publishes completed', async t => {
   const f = await setup(t); const memory = new MemoryJournal(); let poisoned = false; let delivered = false;
-  const journal = { async append(event) { if (event.payload.type === 'unit.finished') poisoned = true; if (poisoned) throw Error('disk failure'); await memory.append(event); }, readActiveBranch: () => memory.readActiveBranch() };
-  await assert.rejects(new ReviewEngine(runtime(tools => submit(tools), journal), async () => { delivered = true; throw Error('unexpected'); }).run(f.options), /disk failure/);
+  const journal = { async append(event) { if (event.payload.type === 'final_batch.accepted') poisoned = true; if (poisoned) throw Error('disk failure'); await memory.append(event); }, readActiveBranch: () => memory.readActiveBranch() };
+  await assert.rejects(new ReviewEngine(runtime(tools => submit(tools), journal), async () => { delivered = true; throw Error('unexpected'); }).run(f.options), /persistence failed/);
   assert.equal(delivered, false); const [m] = await history(f.state); assert.equal(m.status, 'delivery_failed');
   await assert.rejects(readReport(f.state, m.runId), /no confirmed/);
 });

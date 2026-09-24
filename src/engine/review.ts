@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers";
 import { ReviewController } from "../application/review-controller.ts";
 import { checkEvidence } from "../application/evidence-check.ts";
+import { EvidenceRegistry } from "../application/evidence-registry.ts";
+import { PersistenceFailure } from "../ports/journal.ts";
 import { assertCandidate, isRecord, requireCondition, requireText } from "../domain/validation.ts";
 import type { ReviewReport } from "../domain/contracts.ts";
 import { isolatedState, sha256, writeJson } from "../infrastructure/files.ts";
@@ -12,14 +14,15 @@ import { LazyCodeGraph } from "../graph/lazy-graph.ts";
 import { LazyLocAgent } from "../experiments/locagent/lazy.ts";
 import type { Relation } from "../graph/contracts.ts";
 import { deliver, readRun, runPath } from "./reports.ts";
-import type { FinalSubmission, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
+import type { FinalSubmission, FinalSubmissionInput, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
 const string = { type: "string", minLength: 1, maxLength: 4000 };
 const revision = { type: "string", enum: ["base", "head"] };
 const integer = { type: "integer", minimum: 1 };
 const CLEANUP_TIMEOUT_MS = 1_000;
 const object = (properties: Record<string, unknown>, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
 const evidence = object({ snapshotId: string, revision, path: string, startLine: integer, endLine: integer, contentSha256: { type: "string", pattern: "^[a-f0-9]{64}$" } }, ["snapshotId", "revision", "path", "startLine", "endLine", "contentSha256"]);
-const finding = object({ id: string, title: string, claim: string, trigger: string, impact: string, severity: { type: "string", enum: ["critical", "high", "medium", "low"] }, evidence: { type: "array", items: evidence, minItems: 1, maxItems: 20 } }, ["id", "title", "claim", "trigger", "impact", "severity", "evidence"]);
+const evidenceInput = { anyOf: [object({ evidenceRefId: { type: "string", pattern: "^ev_[a-f0-9]{64}$" } }, ["evidenceRefId"]), evidence] };
+const finding = object({ id: string, title: string, claim: string, trigger: string, impact: string, severity: { type: "string", enum: ["critical", "high", "medium", "low"] }, evidence: { type: "array", items: evidenceInput, minItems: 1, maxItems: 20 } }, ["id", "title", "claim", "trigger", "impact", "severity", "evidence"]);
 function args(value: unknown): Record<string, unknown> { requireCondition(isRecord(value), "Tool arguments must be an object"); return value; }
 function text(value: unknown): string { requireText(value, "tool argument"); return value; }
 function rev(value: unknown): "base" | "head" { requireCondition(value === "base" || value === "head", "Invalid source revision"); return value; }
@@ -45,6 +48,10 @@ export class ReviewEngine {
     requireCondition(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 3_600_000, "Timeout must be 1..3600000 ms");
     requireCondition(Number.isInteger(maxTools) && maxTools > 0 && maxTools <= 1000, "Tool limit must be 1..1000");
     requireText(options.model.provider, "provider"); requireText(options.model.modelId, "model");
+    const routingEnabled = options.evaluation?.routing !== undefined && options.evaluation.routing !== "none";
+    const routingTextOnly = options.evaluation?.routingTextOnly === true;
+    requireCondition(!routingTextOnly || (routingEnabled && options.evaluation?.tools === "text-only"), "Routing text ablation requires routing and text-only tools");
+    requireCondition(!routingEnabled || routingTextOnly || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
     const abort = new AbortController(); let timedOut = false; let budgetExceeded = false;
     const cancel = () => abort.abort(new Error("Review cancelled"));
     options.signal?.addEventListener("abort", cancel, { once: true }); if (options.signal?.aborted) cancel();
@@ -84,9 +91,18 @@ export class ReviewEngine {
       manifest.toolExposure = retrieval ? "text+locagent" : graphEnabled ? "text+graph" : "text-only";
       let navigationDegraded = false; let navigationErrors = 0;
       const sourceReads = new Set<string>();
+      const evidenceRegistry = new EvidenceRegistry(store.manifest.identity.id);
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = "";
       let toolRequests = 0; let toolAccepted = 0; let toolExecuted = 0; let toolRejected = 0;
+      let routingRejected = 0;
+      const onBlockedCall = (_name: string) => {
+        toolRequests++; toolRejected++;
+        if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) return;
+        if (toolAccepted + routingRejected >= maxTools) {
+          budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted"));
+        } else routingRejected++;
+      };
       let toolQueue: Promise<unknown> = Promise.resolve();
       abort.signal.addEventListener("abort", stopAcceptingTools, { once: true });
       const readDiffLines = new Map<string, { total: number; seen: Set<number> }>();
@@ -97,7 +113,7 @@ export class ReviewEngine {
             toolRejected++;
             return Promise.reject(abort.signal.reason ?? new Error(submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools"));
           }
-          if (toolAccepted >= maxTools) {
+          if (toolAccepted + routingRejected >= maxTools) {
             toolRejected++; budgetExceeded = true; acceptingTools = false;
             abort.abort(new Error("Tool budget exhausted"));
             return Promise.reject(new Error("Tool budget exhausted"));
@@ -113,14 +129,18 @@ export class ReviewEngine {
               abort.signal.throwIfAborted();
               return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
             } catch (error) {
-              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
+              if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
+              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
             }
           });
           toolQueue = job.catch(() => undefined); return job;
         } });
       const tools = [
-        tool("read_source", "Read 1–200 lines of immutable base/head source; copy the returned hash and exact range for evidence.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
-          const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200)); sourceReads.add(sourceKey(page)); return page;
+        tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
+          const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200));
+          if (page.status !== "ok" || page.endLine < page.startLine) return page;
+          sourceReads.add(sourceKey(page));
+          return { ...page, _mergewarden: { schemaVersion: 1, evidenceRefId: evidenceRegistry.register(page) } };
         }),
         tool("read_diff", "Read a page of the frozen change. Follow nextCursor until truncated=false before marking this path reviewed.", object({ path: string, cursor: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } }, ["path"]), async input => {
           const page = await store.diff(text(input.path), number(input.cursor, 0), number(input.limit, 100));
@@ -132,10 +152,11 @@ export class ReviewEngine {
           return page;
         }),
         tool("search_text", "Literal search of immutable source. Truncated results do not establish absence elsewhere.", object({ revision, query: string, limit: { type: "integer", minimum: 1, maximum: 100 } }, ["revision", "query"]), async input => store.search(rev(input.revision), text(input.query), number(input.limit, 50))),
-        tool("submit_review", "Submit exactly once after investigation: mature advisory findings and the paths fully reviewed. Never submit hypotheses as findings.", object({ summary: string, reviewedPaths: { type: "array", items: string, maxItems: 200, uniqueItems: true }, findings: { type: "array", items: finding, maxItems: 100 } }, ["summary", "reviewedPaths", "findings"]), async input => {
+        tool("submit_review", "Submit the final mature advisory findings after investigation. reviewedPaths contains only fully read changed paths. A finding may explicitly select changed and untouched source evidence using {evidenceRefId} from read_source (preferred) or full EvidenceRefs. Include only evidence the finding depends on. Never submit hypotheses as findings.", object({ summary: string, reviewedPaths: { type: "array", items: string, maxItems: 200, uniqueItems: true }, findings: { type: "array", items: finding, maxItems: 100 } }, ["summary", "reviewedPaths", "findings"]), async input => {
           requireText(input.summary, "summary"); requireCondition(input.summary.length <= 4000, "Summary exceeds limit");
           requireCondition(Array.isArray(input.findings) && input.findings.length <= 100 && Array.isArray(input.reviewedPaths) && input.reviewedPaths.length <= 200, "Invalid submission");
-          const submission = input as unknown as FinalSubmission;
+          const transport = input as unknown as FinalSubmissionInput;
+          const submission: FinalSubmission = { ...transport, findings: evidenceRegistry.normalize(transport.findings) };
           requireCondition(new Set(submission.reviewedPaths).size === submission.reviewedPaths.length, "Duplicate reviewed path");
           const ids = new Set<string>();
           for (const path of submission.reviewedPaths) {
@@ -151,11 +172,9 @@ export class ReviewEngine {
             requireCondition(candidate.evidence.every(e => sourceReads.has(sourceKey(e))), "Finding evidence must be read with read_source in this run");
           }
           abort.signal.throwIfAborted();
-          await controller!.dispatch({ type: "candidates.submitted", channel: "final_only", candidates: submission.findings });
-          for (const candidate of submission.findings) await controller!.dispatch({ type: "candidate.decided", candidateId: candidate.id, disposition: "accepted", reason: "Advisory claim: structure and frozen evidence integrity verified; semantic correctness requires human review." });
-          for (const path of submission.reviewedPaths) await controller!.dispatch({ type: "unit.finished", unitId: path, outcome: "done" });
+          await controller!.dispatch({ type: "final_batch.accepted", candidates: submission.findings, reviewedPaths: submission.reviewedPaths, reason: "Advisory claim: structure and frozen evidence integrity verified; semantic correctness requires human review." });
           submitted = true; finalSummary = submission.summary;
-          return { accepted: true, findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
+          return { accepted: true, outcome: "ACCEPTED", findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
         }),
       ];
       if (graphEnabled && !retrieval) {
@@ -173,7 +192,7 @@ export class ReviewEngine {
         try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}) });
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { ...(routingTextOnly ? { textOnly: true } : {}), variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);
@@ -195,6 +214,7 @@ export class ReviewEngine {
       acceptingTools = false;
       if (abort.signal.aborted) await bounded(runtime.abort().catch(() => undefined));
       await bounded(toolQueue);
+      if (abort.signal.reason instanceof PersistenceFailure) throw abort.signal.reason;
       if (abort.signal.aborted) modelError = timedOut ? "Review time budget exhausted" : budgetExceeded ? "Review tool budget exhausted" : "Review cancelled";
       const state = controller.state!;
       const complete = submitted && Object.values(state.units).every(v => v === "done") && !modelError;
@@ -205,6 +225,7 @@ export class ReviewEngine {
       const report = controller.report(); manifest.usage = runtime.usage();
       const graphMetrics = (retrieval ?? graph!).metrics;
       manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
+      if (runtime.routingMetrics) manifest.metrics.routing = runtime.routingMetrics();
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);
       return { kind: "report", runId, report, ...paths };

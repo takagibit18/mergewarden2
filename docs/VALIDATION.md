@@ -1,5 +1,28 @@
 # 实测记录 · 2026-09-20
 
+
+## Evidence & Attribution Contract · 2026-09-24
+
+基线为用户本地 Routing 开发 HEAD `26e6535`，工作树干净；本地 main 为 `8b170a0`，远端 main 经只读查询确认为 `2571aef`。从当前工作树继续，未覆盖已有提交。基线 verify 为 289 passed / 0 failed / 0 skipped（174 core + 45 Pi + 50 Tree-sitter + 20 Python）。
+
+P0 在开始 Registry 前独立通过 307 项完整检查。原 Routing v1 16-run 和 ABC 18-run 的原生会话、最终报告、raw findings 与 v2 结果只读保留，v3 对全部 34 条运行重复分析，字节稳定且输入 digest 不变。ABC 中 P1/C、P4/B 从 ambiguous 重分类为严格 incoming-call assisted，因为早期失败提交不再污染后来完整 accepted evidence。P2/B、P2/C 最终缺少 adapter.py/api.py evidence，继续不给严格 credit。Routing v1 的另外两项变化分别是 entity-search 分类与后续精确 source range 关联修正。计量重分类不等于模型能力提升。
+
+Registry 和原子接受完成后，首次完整 verify 为 325 passed / 0 failed / 0 skipped（201 core + 54 Pi + 50 Tree-sitter + 20 Python），三组类型检查、demo、status 通过。P1 后的历史重放与 P0 冻结 v3 输出逐字节相同。测试数量只用于记录验收范围，不是质量分数。
+
+跨层 fixture 使用真实 Pi SDK、离线 scripted provider、真实不可变快照与 prepared-only Graph、ReviewEngine、PiSessionJournal 和 native session.jsonl，然后交给 v3 analyzer。覆盖 ID 展开至报告、未知 ID 后修正、未选择 Graph source 不自动附加、先文本后 Graph、partial definite edge、Graph error 后 text fallback，以及 final batch 写入前/写入后确认失败。八种情形均通过。
+
+先运行的 fault-injection 确认旧多事件 final batch 可以留下半接受状态；新 composite event 在一次 reducer transition 中完成接受和 coverage。Controller 在任何 append 失败后保持 poisoned，Engine 中止，不允许把持久化错误作为参数纠正而重试。旧事件与 incremental 模式恢复测试保留。
+
+所有日志、原始重放、摘要和实施报告位于 checkout 外 `../output/evidence-attribution-contract-hardening-20260924/`。可选四个既有正例的单 variant live 只用于 Evidence ID 交付确认，单独 identity、单次尝试；不是 F1、reserve 或 formal 实验，不能追求 4/4 Graph-assisted。Graph v4、Routing 触发/预算、B/C 原措辞、模型配置和 RealGolden 标签不变。
+
+### 最终交付补充
+
+四个 live 名额已使用并冻结在独立 delivery-smoke identity。P1 在首个工具调用前因沙箱网络 EACCES 失败，保留原尝试、没有补跑；P2/P3/P4 在获准网络环境中完成。三个 main claims 经冻结后源码核对均有支持，模型明确选择的 Evidence ID 全部展开为最终完整 EvidenceRef；P2/P3 是 text_only，只有 P4 是 strict incoming-call assisted。P2 另一个 bytes 语义 claim 缺少契约支持，依旧不算正确 finding。三例各有一次 SDK schema 纠正，其中一次为 ID 与 legacy 字段混写，另两次为旧式不合法 hash；没有为此放宽校验。此记录不构成质量比较。
+
+Live 冻结后补测发现参数数组错误仍被旧 identity 检查误判为 fatal。最终 decoder 将这种普通输入错误限定在 call；依赖该无效调用的证据链仍拒绝，真正损坏的 active native message 仍 fatal。新增真实 SDK 参数数组错误后恢复 fixture，跨层情形共 9 个。最终完整验证为 328 passed / 0 failed / 0 skipped（203 core + 55 Pi + 50 Tree-sitter + 20 Python）；历史 34 条和 live 4 条实际结果均未重分类。最终日志为 checkout 外 acceptance-final-verify.log。
+
+工程契约可进入新的有限 reserve，但本轮没有自动启动 reserve/formal。Evidence relevance 与 unsupported claims 仍需语义审核；后续保留 schema retry 与证据选择遗漏观察项，不以 finding/Graph 调用数量判胜。
+
 ## 图稳定性层 · 2026-09-22
 
 工作基线为干净的 `feat/realgolden40-corpus` / `092ba457ad42f28a1bb11afa33b24a02fa66ce1f`；提示词所列 `0dd80b2` 不在本地对象库，本地 `main` 为 `8b170a0`，因此没有回退或覆盖当前两项 Graph harness 后续修正。修改前 `npm run verify` 退出码 0：142 core + 18 Pi + 38 Tree-sitter + 20 RealGolden，三组类型检查、demo、status 均通过；日志保存在 checkout 外 `../mergewarden2-graph-upgrade-baseline-verify.log`。

@@ -41,7 +41,7 @@ for(const [caseIndex,item] of cases.entries()){
    if(result.kind!=='report'||result.report.snapshot.id!==store.manifest.identity.id)throw Error('Snapshot/result drift');
    entry={...entry,status:result.report.status,delivered:true,findings:result.report.findings,report:result.report,manifest:await readRun(state,result.runId)};
    const jsonl=await readFile(join(state,'runs',result.runId,'session.jsonl'),'utf8');
-   entry.trace=analyzeRetrieval({runKey,snapshotId:entry.snapshotId,findings:entry.findings,jsonl});
+   entry.trace=analyzeRetrieval({runKey,snapshotId:entry.snapshotId,findings:entry.findings,changedPaths:Object.keys(result.report.coverage),jsonl});
   }catch{entry.error='Runtime, delivery, or trace extraction failed; preserve state and do not infer clean.';}
   entry.elapsedMs=performance.now()-started;raw.runs.push(entry);group.push(entry);await writeJson(join(output,'raw.json'),raw);
  }
