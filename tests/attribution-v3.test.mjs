@@ -29,6 +29,7 @@ test('T3 damaged branches and cross-snapshot observations still fail closed',()=
 });
 test('T4 partial definite positive relations get credit with coverage limits in both adapters',()=>{
  for(const g0 of [false,true]){const f=fixture();f.graph({g0,status:'partial'});f.read();f.submit();const a=(g0?analyzeTrace:analyzeRetrieval)(f.input());assert.equal(a.findings[0].discoveryPath,'graph_assisted');assert.equal(a.findings[0].coverageLimited,true);}
+ for(const key of ['id','snapshotId']){const f=fixture();f.graph({g0:true,status:'partial'});const page=JSON.parse(f.entries[1].message.content[0].text);delete page.items[0][key];f.entries[1].message.content[0].text=JSON.stringify(page);f.read();f.submit();assert.notEqual(analyzeTrace(f.input()).findings[0].discoveryPath,'graph_assisted');}
 });
 test('T5 partial empty results supply neither positive nor absence proof',()=>{
  const f=fixture();f.call('traverse_graph',{startEntities:['root']},{snapshotId:'s',status:'partial',items:[]});f.read();f.submit();const a=observe(f.input());assert.equal(a.discoveries.length,0);assert.equal(a.findings[0].discoveryPath,'text_only');assert.equal(a.graphObservations[0].absenceProven,false);assert.equal(a.graphObservations[0].coverageLimited,true);
@@ -50,4 +51,15 @@ test('T10 abandoned branch discoveries are ignored, and analysis is byte stable'
 });
 test('a correct claim with omitted untouched evidence receives no manufactured credit',()=>{
  const f=fixture();f.graph();f.read();f.read('changed.py');f.submit([finding('changed.py')]);assert.equal(f.analyze([finding('changed.py')]).findings[0].discoveryPath,'text_only');
+});
+
+test('invalid tool arguments are recoverable without losing call/result identity',()=>{
+ const f=fixture();f.graph();f.read();f.call('submit_review',[],null,{raw:'SDK arguments must be object',error:true});f.submit();const a=f.analyze();
+ assert.equal(a.findings[0].discoveryPath,'graph_assisted');assert.equal(a.metrics.submissionAttempts,2);assert.equal(a.metrics.submissionValidationFailures,1);
+ assert.ok(a.traceIssues.some(i=>i.kind==='invalid_arguments'&&i.scope==='call'));assert.ok(a.traceIssues.every(i=>i.severity!=='fatal'));
+ const dependent=fixture();dependent.graph();dependent.call('read_source',[],{status:'ok',...ev(),text:'contradictory success'});dependent.submit();assert.equal(dependent.analyze().findings[0].discoveryPath,'ambiguous');
+});
+test('a malformed active native message cannot be silently skipped',()=>{
+ const f=fixture();f.append('corrupt message');f.graph();f.read();f.submit();const a=f.analyze();
+ assert.equal(a.findings[0].discoveryPath,'ambiguous');assert.ok(a.traceIssues.some(i=>i.kind==='invalid_message'&&i.severity==='fatal'));
 });

@@ -7,7 +7,7 @@ export const rows = (v: unknown): Record<string, unknown>[] => Array.isArray(v) 
 export const end = (c: ToolCall) => c.resultEvent ?? Infinity;
 export const canonical = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => isObject(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x);
 export const isGraph = (c: ToolCall) => ["graph_lookup", "graph_neighbors", "search_entity", "traverse_graph"].includes(c.name);
-export const usable = (c: ToolCall, snapshot: string) => !c.isError && c.response?.snapshotId === snapshot && ["ok", "parse_incomplete", "partial"].includes(String(c.response.status));
+export const usable = (c: ToolCall, snapshot: string) => c.argumentsValid !== false && !c.isError && c.response?.snapshotId === snapshot && ["ok", "parse_incomplete", "partial"].includes(String(c.response.status));
 export const coverageLimited = (c: ToolCall) => ["partial", "parse_incomplete"].includes(String(c.response?.status)) || c.response?.generationState === "partial" || (isObject(c.response?.coverage) && c.response.coverage.generationState === "partial") || c.response?.truncated === true;
 const definite = (resolution: unknown) => ["resolved_scoped", "resolved_import_alias"].includes(String(resolution));
 const hintItems = (c: ToolCall) => rows(c.response?.hints).flatMap(h => rows(h.candidates));
@@ -40,7 +40,7 @@ export function locations(c: ToolCall, snapshot: string): Location[] {
       if (!["upstream", "downstream"].includes(String(via.direction)) || (c.args.direction !== "both" && c.args.direction !== via.direction)) return [];
     } else if (c.name === "graph_neighbors") {
       // G0 returns edge source locations, not the outgoing target's location.
-      if (c.args.direction !== "incoming" || i.toId !== c.args.symbolId || i.relation !== c.args.relation || !definite(i.resolution)) return [];
+      if (c.args.direction !== "incoming" || i.snapshotId !== snapshot || typeof i.id !== "string" || i.toId !== c.args.symbolId || i.relation !== c.args.relation || !definite(i.resolution)) return [];
       id = i.fromId; path = i.sourcePath; startLine = i.sourceLine; endLine = i.sourceEndLine; depth = 1; mode = "traversal";
       via = { edgeId: i.id, relation: i.relation, resolution: i.resolution, direction: "upstream", pathResolved: true };
     }

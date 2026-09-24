@@ -34,6 +34,7 @@ async function fixture(t,mode){
  if(mode==='graph-error')steps.push(tool('search_text',{revision:'head',query:'convert'}));
  steps.push(source('caller.py'),source('app.py'));
  if(mode==='retry')steps.push(c=>submission(c,true));
+ if(mode==='bad-args')steps.push(tool('submit_review',[]));
  steps.push(c=>submission(c));
  const catalog=await createModelRuntime('fixture','offline');let turn=0,atomicAttempts=0,runDir;
  catalog.registerProvider('fixture',{api:'openai-completions',baseUrl:'https://offline.invalid',apiKey:'offline',models:[{id:'offline',name:'offline',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:100000,maxTokens:2048}],streamSimple(m,c){
@@ -67,10 +68,11 @@ async function fixture(t,mode){
  assert.equal(analysis.findings[0].coverageLimited,mode==='partial');
  assert.deepEqual(result.report.findings[0].evidence.map(e=>e.path),mode==='omit'?['app.py']:['app.py','caller.py']);
  assert.ok(result.report.findings[0].evidence.every(e=>/^[a-f0-9]{64}$/.test(e.contentSha256)));assert.doesNotMatch(JSON.stringify(result.report),/evidenceRefId/);
- assert.equal(analysis.metrics.submissionAttempts,mode==='retry'?2:1);assert.equal(analysis.metrics.submissionValidationFailures,mode==='retry'?1:0);
+ assert.equal(analysis.metrics.submissionAttempts,['retry','bad-args'].includes(mode)?2:1);assert.equal(analysis.metrics.submissionValidationFailures,['retry','bad-args'].includes(mode)?1:0);
  const entries=jsonl.trim().split('\n').map(JSON.parse);assert.equal(entries.filter(r=>r.data?.payload?.type==='final_batch.accepted').length,1);
  assert.equal(entries.filter(r=>r.data?.payload?.type==='candidates.submitted').length,0);
  const acceptedCall=analysis.calls.find(c=>c.name==='submit_review'&&c.response?.accepted);assert.ok(acceptedCall.args.findings[0].evidence.every(e=>e.evidenceRefId));
  for(const call of analysis.calls.filter(c=>!c.isError&&c.response))assert.ok(JSON.parse(entries.find(r=>r.message?.toolCallId===call.id).message.content[0].text)._mergewarden);
 }
 for(const [name,mode] of [['E2E-1 selected IDs survive report and structural attribution','normal'],['E2E-2 unknown ID correction recovers without poisoned attribution','retry'],['E2E-3 unselected Graph source is never automatically attached','omit'],['E2E-4 earlier text discovery is not Graph novel','text-first'],['E2E-5 partial definite edge remains positive and coverage limited','partial'],['E2E-6 Graph error allows text fallback and business completion','graph-error'],['E2E-7 persistence before write prevents completed delivery','persistence-before'],['E2E-7 persistence after write prevents duplicate acceptance','persistence-after']])test(name,t=>fixture(t,mode));
+test('E2E-8 malformed SDK argument shape recovers and preserves accepted attribution',t=>fixture(t,'bad-args'));

@@ -10,6 +10,7 @@ export const issue = (kind: string, message: string, callId?: string): TraceIssu
 export interface ToolCall {
   id: string; name: string; args: ObjectValue; ordinal: number; callEvent: number; callEntryId: string;
   resultEvent?: number; resultEntryId?: string; response?: ObjectValue; resultText: string; isError: boolean;
+  argumentsValid?: boolean;
 }
 export interface TraceUsage {
   assistantResponses: number; reportedInputTokens: number; reportedOutputTokens: number; reportedTotalTokens: number;
@@ -44,8 +45,10 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
   trace.ignoredBranchEntries = indexed.size - branch.length; branch.reverse();
   const calls = new Map<string, ToolCall>();
   for (const [event, e] of branch.entries()) {
-    if (e.type !== "message" || !object(e.message)) continue;
+    if (e.type !== "message") continue;
+    if (!object(e.message) || typeof e.message.role !== "string") { trace.issues.push(issue("invalid_message", "Invalid native message structure")); continue; }
     const message = e.message;
+    if (message.role === "assistant" && !Array.isArray(message.content)) { trace.issues.push(issue("invalid_message", "Invalid native assistant content")); continue; }
     if (message.role === "assistant") {
       const usage = message.usage; trace.usage.assistantResponses++;
       if (["aborted", "error"].includes(String(message.stopReason))) trace.usage.interruptedResponses++;
@@ -58,8 +61,10 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
     }
     if (message.role === "assistant") for (const block of records(message.content)) {
       if (block.type !== "toolCall") continue;
-      if (typeof block.id !== "string" || typeof block.name !== "string" || !object(block.arguments) || calls.has(block.id)) { trace.issues.push(issue("call_identity", "Invalid/duplicate tool call")); continue; }
-      const call: ToolCall = { id: block.id, name: block.name, args: block.arguments, ordinal: trace.calls.length + 1, callEvent: event, callEntryId: String(e.id), resultText: "", isError: false };
+      if (typeof block.id !== "string" || typeof block.name !== "string" || calls.has(block.id)) { trace.issues.push(issue("call_identity", "Invalid/duplicate tool call")); continue; }
+      const validArguments = object(block.arguments);
+      if (!validArguments) trace.issues.push(issue("invalid_arguments", "Non-object tool arguments; call identity remains intact", block.id));
+      const call: ToolCall = { id: block.id, name: block.name, args: validArguments ? block.arguments as ObjectValue : {}, argumentsValid: validArguments, ordinal: trace.calls.length + 1, callEvent: event, callEntryId: String(e.id), resultText: "", isError: false };
       calls.set(call.id, call); trace.calls.push(call);
     }
     if (message.role === "toolResult") {
