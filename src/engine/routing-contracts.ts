@@ -9,6 +9,7 @@ export interface RoutingMetrics {
   firstActivationToolOrdinal?: number;
 }
 export interface RoutingContext {
+  dispatch?: import("./dispatch-contracts.ts").DispatchBridge;
   variant?: Exclude<RoutingMode, "none">;
   /** Internal capability ablation: identical guidance, no structural tool exposure. */
   textOnly?: boolean;
