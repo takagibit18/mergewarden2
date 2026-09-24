@@ -183,6 +183,12 @@ const chooks=(entries=[])=>hooks('s',entries,new Set([...TEXT_TOOLS,...STRUCTURA
 const activate=h=>h.result('read_diff',{path:'app.py',offset:0,totalLines:2,lines:['-def foo(a):','+def foo(a,b):']});
 const graph=h=>h.result('search_entity',{revision:'head',items:[{entityId:'x',path:'caller.py',startLine:2,endLine:4}]});
 const readCaller=(h,extra={})=>h.result('read_source',{revision:'head',path:'caller.py',startLine:1,endLine:5,...extra});
+
+test('non-JSON Graph errors preserve visible error and privately degrade without fabricated evidence',()=>{
+ const h=chooks();activate(h);
+ const returned=h.handlers.tool_result({toolName:'traverse_graph',isError:true,input:{},content:[{type:'text',text:'query failed'}],details:{snapshotId:'s',status:'ok',revision:'head',items:[{entityId:'hidden',path:'caller.py',startLine:1,endLine:5,depth:1}]}});
+ assert.equal(returned,undefined);assert.equal(h.routing.metrics().degraded,1);assert.equal(readCaller(h),undefined);
+});
 test('C deduplicates route/path across restoration and rejects another variant state',()=>{
  const h=chooks();activate(h);graph(h);assert.match(JSON.stringify(readCaller(h)),/Impact synthesis checkpoint/);
  const restored=chooks(h.saved);assert.equal(readCaller(restored),undefined);

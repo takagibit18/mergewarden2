@@ -119,13 +119,13 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       return;
     });
     pi.on("tool_result", event => {
-      const result = parseToolResult(event.content).value;
-      if (!result) return;
+      const parsed = parseToolResult(event.content).value;
+      const result = parsed ?? {};
       const hints: string[] = [];
       const route = current();
       if (STRUCTURAL_TOOLS.includes(event.toolName) && route) {
         const limited = ["partial", "parse_incomplete", "unsupported"].includes(String(result.status)) && (!Array.isArray(result.items) || !result.items.length);
-        if (event.isError || ["error", "not_indexed", "building"].includes(String(result.status)) || limited) {
+        if (!parsed || event.isError || ["error", "not_indexed", "building"].includes(String(result.status)) || limited) {
           data.metrics.degraded++; transition(route, "DEGRADED", limited ? "relationship_limited" : "structural_tool_error");
           hints.push("Structural investigation is degraded. Continue with search_text and read_source; empty graph results do not establish absence.");
         } else if (result.snapshotId === context.snapshotId && result.revision === "head") {
@@ -180,7 +180,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         }
       }
       persist();
-      if (hints.length && !event.isError && result.status !== "error") return { content: [{ type: "text" as const, text: JSON.stringify(annotateResult(result, hints.map(text => ({ kind: text === IMPACT_SYNTHESIS_CHECKPOINT ? "impact_synthesis" : "structural_investigation", routeId: (route ?? data.routes.findLast(r => r.activationOrdinal !== undefined))?.routeId, text })))) }] };
+      if (parsed && hints.length && !event.isError && result.status !== "error") return { content: [{ type: "text" as const, text: JSON.stringify(annotateResult(result, hints.map(text => ({ kind: text === IMPACT_SYNTHESIS_CHECKPOINT ? "impact_synthesis" : "structural_investigation", routeId: (route ?? data.routes.findLast(r => r.activationOrdinal !== undefined))?.routeId, text })))) }] };
       return;
     });
   };
