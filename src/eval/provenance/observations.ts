@@ -63,15 +63,22 @@ export function novelty(calls: ToolCall[], c: ToolCall, loc: {id: string; path: 
   const novelPath = !earlier.some(p => exposesPath(p, loc.path, snapshot));
   return { novelPath, novelEntity: novelPath && !earlier.some(p => exposesEntity(p, loc.id, snapshot)) };
 }
-export interface ProvenanceInput { runKey: string; snapshotId: string; findings: FindingCandidate[]; jsonl: string }
+export interface ProvenanceInput { runKey: string; snapshotId: string; findings: FindingCandidate[]; jsonl: string; changedPaths?: readonly string[] }
 export function observe(input: ProvenanceInput) {
   const trace = decodePiTrace(input.jsonl), calls = trace.calls, snapshot = input.snapshotId;
   for (const c of calls) {
     if (c.isError || c.response?.status === "error") trace.issues.push(issue(c.name === "submit_review" ? "submission_validation_failure" : "tool_error", "Tool returned an error", c.id));
     if (c.response?.snapshotId !== undefined && c.response.snapshotId !== snapshot || rows(c.response?.items).some(i => i.snapshotId !== undefined && i.snapshotId !== snapshot)) trace.issues.push(issue("cross_snapshot", `Cross-snapshot model-visible result: ${c.id}`));
   }
+  // Change membership is business context, not discovery credit. A later diff still
+  // proves that a Graph-first location was changed, so it cannot count as untouched.
+  const changedPaths = new Set(input.changedPaths ?? []);
+  for (const c of calls) {
+    if (c.name === "read_diff" && usable(c, snapshot) && typeof c.response?.path === "string") changedPaths.add(c.response.path);
+    if (c.name === "submit_review" && !c.isError && c.response?.accepted === true && Array.isArray(c.args.reviewedPaths)) for (const path of c.args.reviewedPaths) if (typeof path === "string") changedPaths.add(path);
+  }
   const discoveries = calls.flatMap(c => locations(c, snapshot).map(location => ({ graphCall: c, location, ...novelty(calls, c, location, snapshot), coverageLimited: coverageLimited(c) })));
-  const sourceLinks = discoveries.flatMap(d => calls.filter(c => c.callEvent > end(d.graphCall) && sourceCovers(c, d.location, snapshot)).map(source => ({ ...d, sourceCall: source, strictNovel: d.novelPath && d.novelEntity })));
+  const sourceLinks = discoveries.flatMap(d => calls.filter(c => c.callEvent > end(d.graphCall) && sourceCovers(c, d.location, snapshot)).map(source => ({ ...d, sourceCall: source, strictNovel: d.novelPath && d.novelEntity && !changedPaths.has(d.location.path) })));
   const findings = input.findings.map(finding => {
     const submission = calls.findLast(c => c.name === "submit_review" && !c.isError && c.response?.accepted === true && (c.response.snapshotId === undefined || c.response.snapshotId === snapshot) && normalizeSubmittedFindings(c, calls, snapshot).some(f => canonical(f) === canonical(finding)));
     const reads = finding.evidence.map(e => calls.find(c => sourceMatches(c, e, snapshot) && end(c) < (submission?.callEvent ?? -1)));
@@ -90,7 +97,7 @@ export function observe(input: ProvenanceInput) {
     if (missing) localIssues.push({ kind: "unobserved_result", severity: "warning", scope: "finding", findingId: finding.id, message: "An earlier missing result prevents proof of the observation timeline" });
     const complete = !trace.issues.some(i => i.severity === "fatal") && !incomplete && !missing;
     const novel = chains.filter(c => c.strictNovel);
-    const uncertainGraph = calls.some(c => isGraph(c) && finding.evidence.some(e => exposesPath(c, e.path, snapshot) && end(c) < (submission?.callEvent ?? -1) && !calls.some(p => !isGraph(p) && end(p) < end(c) && exposesPath(p, e.path, snapshot))));
+    const uncertainGraph = calls.some(c => isGraph(c) && finding.evidence.some(e => !changedPaths.has(e.path) && exposesPath(c, e.path, snapshot) && end(c) < (submission?.callEvent ?? -1) && !calls.some(p => !isGraph(p) && end(p) < end(c) && exposesPath(p, e.path, snapshot))));
     const discoveryPath: "graph_assisted" | "text_only" | "ambiguous" = !complete ? "ambiguous" : novel.length ? "graph_assisted" : uncertainGraph ? "ambiguous" : "text_only";
     return { predictionId: finding.id, discoveryPath, assistanceKind: [...new Set(novel.map(c => c.assistanceKind))],
       strictCallerAssisted: complete && novel.some(c => c.strictCallerAssisted), structuralAssisted: complete && novel.some(c => c.assistanceKind !== "entity_search"),

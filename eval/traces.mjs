@@ -61,7 +61,7 @@ async function main(){
   const report=await readReport(state,run.report.runId);if(report.snapshot.id!==run.snapshotId||JSON.stringify(report.findings)!==JSON.stringify(run.findings))throw Error('Saved report differs from evaluation raw');
   const store=await SnapshotStore.load(state,run.snapshotId);for(const finding of report.findings)if(!(await checkEvidence(finding,store)).ok)throw Error('Immutable finding evidence failed integrity verification');
   const traceFile=join(state,'runs',report.runId,'session.jsonl'),jsonl=await readFile(traceFile,'utf8');
-  const analysis=analyzeTrace({runKey:run.runKey,snapshotId:run.snapshotId,findings:report.findings,jsonl});
+  const analysis=analyzeTrace({runKey:run.runKey,snapshotId:run.snapshotId,findings:report.findings,jsonl,changedPaths:Object.keys(report.coverage)});
   runs.push({...identity,...analysis,analysisStatus:analysis.traceIssues.length?'trace_incomplete':'ok',traceFile,reportIntegrityVerified:true,evidenceIntegrityVerified:true});
  }
  let mappings;let humanReview={status:'pending_independent_human_review',reviewed:0,total:20,allAccepted:false};

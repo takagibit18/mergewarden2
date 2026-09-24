@@ -8,7 +8,7 @@ const records = (v: unknown): ObjectValue[] => Array.isArray(v) ? v.filter(objec
 const items = (call: ToolCall): ObjectValue[] => records(call.response?.items);
 const graph = (call: ToolCall) => call.name === "graph_lookup" || call.name === "graph_neighbors";
 const position = (call: ToolCall) => call.resultEvent ?? Infinity;
-export function analyzeTrace(input: { runKey: string; snapshotId: string; findings: FindingCandidate[]; jsonl: string }) {
+export function analyzeTrace(input: { runKey: string; snapshotId: string; findings: FindingCandidate[]; jsonl: string; changedPaths?: readonly string[] }) {
   const observation = observe(input), trace = observation.trace, calls = trace.calls, snapshotId = input.snapshotId;
   const graphs = calls.filter(graph); const lookups = graphs.filter(c => c.name === "graph_lookup"); const neighbors = graphs.filter(c => c.name === "graph_neighbors");
   const hits = lookups.filter(c => ok(c, snapshotId) && items(c).some(s => s.snapshotId === snapshotId && typeof s.id === "string"));

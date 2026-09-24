@@ -51,6 +51,8 @@ test('T10 abandoned branch discoveries are ignored, and analysis is byte stable'
 });
 test('a correct claim with omitted untouched evidence receives no manufactured credit',()=>{
  const f=fixture();f.graph();f.read();f.read('changed.py');f.submit([finding('changed.py')]);assert.equal(f.analyze([finding('changed.py')]).findings[0].discoveryPath,'text_only');
+ const changed=fixture();changed.graph();changed.read();changed.call('read_diff',{path:'caller.py'},{snapshotId:'s',status:'ok',path:'caller.py',lines:['change']});changed.submit();assert.equal(changed.analyze().findings[0].discoveryPath,'text_only');
+ const partial=fixture();partial.graph();partial.read();partial.submit();assert.equal(analyzeRetrieval({...partial.input(),changedPaths:['caller.py']}).findings[0].discoveryPath,'text_only');
 });
 
 test('invalid tool arguments are recoverable without losing call/result identity',()=>{

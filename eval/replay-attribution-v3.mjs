@@ -23,7 +23,7 @@ export async function replay(datasets){
    if(hash(native)!==run.trace.traceSha256)throw Error('Native trace differs from frozen v2 input');
    const identity={dataset:resolve(directory).split(/[\\/]/).at(-1),caseId:run.caseId,arm:run.arm??run.group,runId:run.runId};
    originals.push({...identity,attribution:run.trace});
-   const input={runKey:run.trace.runKey,snapshotId:report.snapshot.id,findings:report.findings,jsonl:native};
+   const input={runKey:run.trace.runKey,snapshotId:report.snapshot.id,findings:report.findings,jsonl:native,changedPaths:Object.keys(report.coverage)};
    const analysis=analyzeRetrieval(input),observed=observe(input);
    if(json(analysis)!==json(analyzeRetrieval(input)))throw Error('Nondeterministic replay');
    const verifiedNovelPaths=[...new Set(observed.sourceLinks.filter(l=>l.strictNovel).map(l=>l.location.path))];

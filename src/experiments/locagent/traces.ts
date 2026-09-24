@@ -3,7 +3,7 @@ import {observe, rows, end, usable} from '../../eval/provenance/observations.ts'
 import type {FindingCandidate} from '../../domain/contracts.ts';
 type Row=Record<string,any>;
 /** G1 metrics over the shared model-visible provenance contract. */
-export function analyzeRetrieval(input:{runKey:string;snapshotId:string;findings:FindingCandidate[];jsonl:string}){
+export function analyzeRetrieval(input:{runKey:string;snapshotId:string;findings:FindingCandidate[];jsonl:string;changedPaths?:readonly string[]}){
  const observation=observe(input),trace=observation.trace,calls=trace.calls,findings=observation.findings;
  const ok=(c:ToolCall)=>usable(c,input.snapshotId);
  const search=calls.filter(c=>['search_entity','graph_lookup'].includes(c.name));
