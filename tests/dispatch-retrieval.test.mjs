@@ -41,4 +41,20 @@ test('escalation uses changed observed ranges, never current-investigation as a 
  a.observe({toolName:'read_diff',result:{status:'ok',path:'app.py',offset:0,totalLines:4,lines:['@@ -1,2 +1,2 @@',' def work():','-    return 1','+    return 2']}});
  assert.deepEqual(a.complete({routeType:'STRUCTURAL_ESCALATION',targetHint:'current-investigation'}),[{path:'app.py',startLine:2,endLine:2}]);
  assert.deepEqual(a.complete({routeType:'CALLER_CHECK',reason:'callable_removal'}),[]);
+ a.observe({toolName:'read_source',result:{status:'ok',revision:'head',path:'app.py',startLine:1,endLine:100}});
+ assert.deepEqual(a.complete({routeType:'STRUCTURAL_ESCALATION'}),[{path:'app.py',startLine:2,endLine:2}]);
+});
+test('general traversal freezes three hops, inheritance freezes one hop and generation changes fail closed',async()=>{
+ for(const template of ['STRUCTURAL_ESCALATION','INHERITANCE_CHECK']){
+  const r=new LocAgentRetrieval(fixture()),calls=[],pack={relations:[],limitations:[],omitted:[],terminal:'no_definite_relation'};
+  await retrieveStructure({snapshotId:'s',template,anchors:[{path:'pkg/api.py',name:'work',kind:'function'}]},pack,async(n,a)=>{calls.push([n,a]);return n==='locate_entity'?r.locate(a):r.traverse(a)});
+  assert.equal(calls[1][1].maxHops,template==='STRUCTURAL_ESCALATION'?3:1);assert.equal(calls[1][1].direction,'both');
+ }
+ const r=new LocAgentRetrieval(fixture()),pack={relations:[],limitations:[],omitted:[],terminal:'no_definite_relation'};
+ await assert.rejects(retrieveStructure({snapshotId:'s',template:'CALLER_CHECK',anchors:[{path:'pkg/api.py',name:'work',kind:'function'}]},pack,async(n,a)=>n==='locate_entity'?r.locate(a):{...r.traverse(a),generationId:'other'}),/generation mismatch/);
+});
+test('anchor hint overflow never turns the first bounded prefix into a unique anchor',()=>{
+ const a=new ObservedAnchors(['app.py']),lines=['@@ -1 +1,40 @@',...Array.from({length:40},(_,i)=>'+value'+i)];
+ a.observe({toolName:'read_diff',result:{status:'ok',path:'app.py',offset:0,totalLines:lines.length,lines}});
+ assert.deepEqual(a.complete({routeType:'STRUCTURAL_ESCALATION'}),[]);assert.equal(a.limited,true);
 });

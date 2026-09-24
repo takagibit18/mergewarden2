@@ -21,6 +21,7 @@ class DispatchBudget extends Error {}
 interface Options {
   runId: string; snapshotId: string; changedPaths: string[]; signal: AbortSignal;
   operation: DispatchOperation; promote(source: DispatchSource): void; budget?: Partial<RoutingBudget>;
+  onPersistenceFailure?(error: PersistenceFailure): void;
 }
 /** Host service: no SDK, repository filesystem or database handles. */
 export class StructuralDispatch implements DispatchBridge {
@@ -31,12 +32,23 @@ export class StructuralDispatch implements DispatchBridge {
   private shown: { path: string; startLine: number; endLine: number }[] = [];
   private recorder: (event: Record<string, unknown>) => void = () => {};
   private totalStructural = 0;
+  private persistenceFailure: PersistenceFailure | undefined;
   readonly metrics = { requests: 0, terminals: {} as Record<string, number>, structuralOperations: 0, sourceReads: 0, packagesQueued: 0, packagesDelivered: 0, contextBytes: 0, latencyMs: 0 };
-  constructor(options: Options) { this.options = options; this.observations = new ObservedAnchors(options.changedPaths); }
+  constructor(options: Options) {
+    for (const [key, value] of Object.entries(options.budget ?? {})) {
+      const cap = DISPATCH_LIMITS[key as keyof RoutingBudget];
+      if (!Number.isInteger(value) || value < 1 || value > cap) throw Error("Invalid dispatch budget: " + key);
+    }
+    this.options = options; this.observations = new ObservedAnchors(options.changedPaths);
+  }
   setRecorder(record: (event: Record<string, unknown>) => void) { this.recorder = record; }
   private record(event: Record<string, unknown>) {
+    if (this.persistenceFailure) throw this.persistenceFailure;
     try { this.recorder({ version: DISPATCH_VERSION, origin: "host_dispatch", runId: this.options.runId, snapshotId: this.options.snapshotId, ...event }); }
-    catch { throw new PersistenceFailure(); }
+    catch {
+      this.persistenceFailure = new PersistenceFailure();
+      this.options.onPersistenceFailure?.(this.persistenceFailure); throw this.persistenceFailure;
+    }
   }
   observe(event: DispatchObservation) {
     if (event.isError || event.result.snapshotId !== this.options.snapshotId) return;
@@ -96,7 +108,9 @@ export class StructuralDispatch implements DispatchBridge {
         : error instanceof DispatchBudget ? "budget_exhausted" : "error";
       pack.limitations.push(String(error).slice(0, 512));
     };
-    try { await retrieveStructure(request, pack, operation, candidates); } catch (error) { failure(error); }
+    if (this.observations.limited) {
+      pack.terminal = "anchor_ambiguous"; pack.limitations.push("Observed anchor hints exceed the frozen bound; no prefix candidate is guessed.");
+    } else try { await retrieveStructure(request, pack, operation, candidates); } catch (error) { failure(error); }
     const alreadyShown = (e: DispatchEntity) => this.shown.some(s => s.path === e.path && s.startLine <= e.startLine && s.endLine >= e.endLine);
     const sorted = candidates.sort((a, b) => Number(alreadyShown(a)) - Number(alreadyShown(b))
       || Number(request.changedPaths.includes(a.path)) - Number(request.changedPaths.includes(b.path))
@@ -121,6 +135,7 @@ export class StructuralDispatch implements DispatchBridge {
         if (startLine > candidate.startLine || endLine < candidate.endLine) pack.omitted.push(`${candidate.path}: definition ${candidate.startLine}-${candidate.endLine}, shown window ${startLine}-${endLine}`);
       } catch (error) { failure(error); pack.omitted.push(window); if (this.options.signal.aborted) break; }
     }
+    if (pack.terminal === "no_definite_relation" && pack.relations.length && !pack.sources.length) pack.limitations.push("Definite relations returned, but no new candidate source was included; existing exposure or output bounds may account for this.");
     if (pack.terminal === "no_definite_relation") pack.terminal = pack.limitations.length > 1 || pack.omitted.length ? "coverage_limited" : pack.sources.length ? "context_returned" : "no_definite_relation";
     // Bound diagnostics too, preserving whole source pages and their hashes.
     pack.omitted = pack.omitted.slice(0, 30); pack.limitations = [...new Set(pack.limitations)].slice(0, 12);

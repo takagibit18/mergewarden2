@@ -32,9 +32,9 @@ export async function retrieveStructure(request: InvestigationRequest, pack: Con
   const found = new Map<string, DispatchEntity>();
   const walk = async (roots: DispatchEntity[], direction: "upstream" | "downstream" | "both", relations: Relation[], hops = 1) => {
     const r = await operation("traverse_graph", { startEntities: roots.map(e => e.entityId), direction, maxHops: hops,
-      entityTypeFilter: [], relationTypeFilter: relations, maxNodes: 30, maxBytes: 8192 });
+      entityTypeFilter: [], relationTypeFilter: relations, maxNodes: DISPATCH_LIMITS.maxTraversalNodes, maxBytes: DISPATCH_LIMITS.maxTraversalBytes });
     validate(r);
-    const edges = records(r.edges).filter(e => e.snapshotId === request.snapshotId && definite(e)) as unknown as RelationFact[];
+    const edges = records(r.edges).filter(e => e.snapshotId === request.snapshotId && definite(e) && relations.includes(e.relation as Relation)) as unknown as RelationFact[];
     // Verify reachability using only returned definite edges, without inferring new relations.
     const reachable = new Set(roots.map(e => e.entityId));
     for (let n = 0; n < hops; n++) {
@@ -58,7 +58,7 @@ export async function retrieveStructure(request: InvestigationRequest, pack: Con
   else if (request.template === "INHERITANCE_CHECK") await walk([root], "both", ["INHERITS"]);
   else if (request.template === "IMPORT_CHECK") {
     const targets = await walk([root], "downstream", ["IMPORTS"]);
-    const selected = targets.slice(0, 4);
+    const selected = targets.slice(0, DISPATCH_LIMITS.maxImportTargets);
     if (targets.length > selected.length) pack.omitted.push(`${targets.length - selected.length} export targets omitted by frozen root bound`);
     await walk([root, ...selected], "upstream", ["IMPORTS"]);
   } else await walk([root], "both", ["CALLS", "IMPORTS", "INHERITS"], DISPATCH_LIMITS.generalHops);

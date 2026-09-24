@@ -44,4 +44,20 @@ test('failed delivery persistence cannot promote evidence',async()=>{
  const f=setup(),pack=await f.service.dispatch(f.trigger);f.service.queued(pack);
  f.service.setRecorder(()=>{throw Error('disk failure')});
  assert.throws(()=>f.service.providerPayload({content:packageText(pack)}),/persistence failed/);assert.equal(f.promoted.length,0);
+ f.service.setRecorder(()=>{});assert.throws(()=>f.service.providerPayload({content:packageText(pack)}),/persistence failed/);
+});
+test('two episodes are admitted and a third returns an explicit terminal without new operations',async()=>{
+ const f=setup();await f.service.dispatch(f.trigger);
+ await f.service.dispatch({...f.trigger,routeId:'second'});
+ const third=await f.service.dispatch({...f.trigger,routeId:'third'});
+ assert.equal(third.terminal,'budget_exhausted');assert.equal(f.operations.length,6);
+});
+test('a reduced run-wide structural cap stops the next episode after locating',async()=>{
+ const f=setup({budget:{maxStructuralCallsTotal:3}});await f.service.dispatch(f.trigger);
+ const pack=await f.service.dispatch({...f.trigger,routeId:'second'});
+ assert.equal(pack.terminal,'budget_exhausted');assert.equal(f.operations.length,4);
+ assert.equal(f.service.metrics.structuralOperations,3);
+});
+test('budget configuration cannot expand frozen caps',()=>{
+ assert.throws(()=>setup({budget:{maxRouteEpisodes:3}}),/Invalid dispatch budget/);
 });

@@ -124,9 +124,10 @@ export class ReviewEngine {
         return { name, description, schema, execute: input => executeOperation("model", name, input) };
       };
       let dispatch: StructuralDispatch | undefined;
-      let modelGraphCalls = 0, hostGraphCalls = 0;
+      let modelGraphCalls = 0, hostGraphCalls = 0, hostSourceReadOperations = 0;
       const tools = [
         tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async (input, origin) => {
+          if (origin === "host_dispatch") hostSourceReadOperations++;
           const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200));
           if (page.status !== "ok" || page.endLine < page.startLine) return page;
           if (origin === "host_dispatch") return page;
@@ -196,7 +197,8 @@ export class ReviewEngine {
             requireCondition(["locate_entity", "traverse_graph", "read_source"].includes(name), "Host operation outside dispatch allowlist");
             return executeOperation("host_dispatch", name, input);
           },
-          promote(source) { evidenceRegistry.register(source); sourceReads.add(sourceKey(source)); }
+          promote(source) { evidenceRegistry.register(source); sourceReads.add(sourceKey(source)); },
+          onPersistenceFailure(error) { acceptingTools = false; abort.abort(error); }
         });
       }
       runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { ...(dispatch ? { dispatch } : {}), ...(routingTextOnly ? { textOnly: true } : {}), variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
@@ -233,7 +235,7 @@ export class ReviewEngine {
       const graphMetrics = (retrieval ?? graph!).metrics;
       const { requested: toolRequests, accepted: toolAccepted, executed: toolExecuted, rejected: toolRejected } = gate.counts.model;
       manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: retrieval ? modelGraphCalls : graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
-      if (dispatch) manifest.metrics.dispatch = { ...dispatch.metrics, operations: gate.counts.host_dispatch, graphBackendRequests: hostGraphCalls };
+      if (dispatch) manifest.metrics.dispatch = { ...dispatch.metrics, operations: gate.counts.host_dispatch, graphBackendRequests: hostGraphCalls, sourceReadOperations: hostSourceReadOperations };
       if (runtime.routingMetrics) manifest.metrics.routing = runtime.routingMetrics();
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);

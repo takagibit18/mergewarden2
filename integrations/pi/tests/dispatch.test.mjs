@@ -57,7 +57,7 @@ async function run(t,mode){
   return runtime;
  });
  const options={repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model,signal:abort.signal,maxToolCalls:mode==='budget'?2:30,evaluation:{tools:'text+locagent',graphMode:'prepared_only',routing:'pi_structural_v1',executionStrategy:mode==='advisory'?'advisory':'dispatch_v1'}};
- if(mode==='final-persistence'){await assert.rejects(engine.run(options),/persistence failed/);return;}
+ if(['final-persistence','host-persistence'].includes(mode)){await assert.rejects(engine.run(options),/persistence failed/);return;}
  const result=await engine.run(options),manifest=JSON.parse(await readFile(join(runDir,'run.json'),'utf8')),jsonl=await readFile(join(runDir,'session.jsonl'),'utf8');
  const rows=jsonl.trim().split('\n').map(JSON.parse),trace=decodePiTrace(jsonl);
  assert.equal(manifest.metrics.graph.buildMs,0);assert.equal(manifest.metrics.graphToolCalls,0);

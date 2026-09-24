@@ -4,7 +4,8 @@ export type ExecutionStrategy = "advisory" | "dispatch_v1";
 export const DISPATCH_VERSION = "structural-dispatch-1" as const;
 export const DISPATCH_LIMITS = Object.freeze({ maxRouteEpisodes: 2, maxStructuralCallsPerEpisode: 4,
   maxStructuralCallsTotal: 6, maxSourceReadsPerEpisode: 3, maxPackageBytes: 24 * 1024,
-  sourceWindowLines: 80, generalHops: 3 });
+  sourceWindowLines: 80, generalHops: 3, maxTraversalNodes: 30, maxTraversalBytes: 8192,
+  maxImportTargets: 4, maxAnchorHints: 32 });
 export type DispatchRoute = "CALLER_CHECK" | "INHERITANCE_CHECK" | "IMPORT_CHECK" | "STRUCTURAL_ESCALATION";
 export interface DispatchTrigger { routeId: string; routeType: DispatchRoute; targetHint: string; reason: string; path: string; toolCallId: string; toolName: string }
 export interface AnchorHint { path: string; name?: string; qualifiedName?: string; kind?: "file" | "class" | "function"; startLine?: number; endLine?: number }

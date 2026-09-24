@@ -123,7 +123,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       transition(route, "ACTIVE");
       return;
     });
-    pi.on("tool_result", async event => {
+    pi.on("tool_result", event => {
       const parsed = parseToolResult(event.content).value;
       const result = parsed ?? {};
       context.dispatch?.observe({ toolName: event.toolName, toolCallId: event.toolCallId, input: event.input, result, isError: event.isError });
@@ -186,11 +186,14 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         }
       }
       persist();
-      for (const accepted of pendingDispatch.splice(0)) {
-        await deliver!({ routeId: accepted.routeId, routeType: accepted.routeType, targetHint: accepted.targetHint,
-          reason: accepted.reason, path: accepted.path, toolCallId: event.toolCallId, toolName: event.toolName });
-        transition(accepted, "DISPATCHED");
-      }
+      if (pendingDispatch.length) return (async () => {
+        for (const accepted of pendingDispatch.splice(0)) {
+          await deliver!({ routeId: accepted.routeId, routeType: accepted.routeType, targetHint: accepted.targetHint,
+            reason: accepted.reason, path: accepted.path, toolCallId: event.toolCallId, toolName: event.toolName });
+          transition(accepted, "DISPATCHED");
+        }
+        return;
+      })();
       if (parsed && hints.length && !event.isError && result.status !== "error") return { content: [{ type: "text" as const, text: JSON.stringify(annotateResult(result, hints.map(text => ({ kind: text === IMPACT_SYNTHESIS_CHECKPOINT ? "impact_synthesis" : "structural_investigation", routeId: (route ?? data.routes.findLast(r => r.activationOrdinal !== undefined))?.routeId, text })))) }] };
       return;
     });
