@@ -45,7 +45,7 @@ export class ReviewEngine {
     requireCondition(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 3_600_000, "Timeout must be 1..3600000 ms");
     requireCondition(Number.isInteger(maxTools) && maxTools > 0 && maxTools <= 1000, "Tool limit must be 1..1000");
     requireText(options.model.provider, "provider"); requireText(options.model.modelId, "model");
-    const routingEnabled = options.evaluation?.routing === "pi_structural_v1";
+    const routingEnabled = options.evaluation?.routing !== undefined && options.evaluation.routing !== "none";
     requireCondition(!routingEnabled || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
     const abort = new AbortController(); let timedOut = false; let budgetExceeded = false;
     const cancel = () => abort.abort(new Error("Review cancelled"));
@@ -183,7 +183,7 @@ export class ReviewEngine {
         try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);

@@ -4,6 +4,10 @@ import type { RoutingContext, RoutingMetrics } from "../../../src/engine/routing
 import { detectStructuralSignals } from "./structural-signals.ts";
 import type { StructuralSignal } from "./structural-signals.ts";
 
+import { investigationGuidance, IMPACT_SYNTHESIS_CHECKPOINT } from "./structural-guidance.ts";
+import { freshObservation, observeResult } from "./structural-observation.ts";
+import type { StructuralObservation } from "./structural-observation.ts";
+
 export const ROUTING_ENTRY = "mergewarden-structural-routing-v1";
 export const TEXT_TOOLS = ["read_diff", "read_source", "search_text", "submit_review"];
 export const STRUCTURAL_TOOLS = ["search_entity", "traverse_graph"];
@@ -15,6 +19,7 @@ interface Route extends StructuralSignal {
   candidates: Candidate[]; suppressionReason?: string;
 }
 interface Checkpoint {
+  variant?: RoutingContext["variant"]; observation: StructuralObservation;
   version: typeof ROUTING_VERSION; snapshotId: string; state: State; ordinal: number; enabled: boolean;
   routes: Route[]; seenPaths: string[]; textVerified: string[]; searches: number;
   searchPaths: Record<string, string[]>; pages: Record<string, { total: number; lines: Record<number, string> }>;
@@ -33,7 +38,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
   for (const key of ["maxRouteEpisodes", "maxStructuralCallsPerEpisode", "maxStructuralCallsTotal"] as const) {
     if (!Number.isInteger(limits[key]) || limits[key] < 1 || limits[key] > ROUTING_THRESHOLDS[key]) throw Error(`Invalid routing budget: ${key}`);
   }
-  const fresh = (): Checkpoint => ({ version: ROUTING_VERSION, snapshotId: context.snapshotId, state: "IDLE", ordinal: 0, enabled: false, routes: [], seenPaths: [...context.changedPaths], textVerified: [], searches: 0, searchPaths: {}, pages: {}, weakSignals: [],
+  const fresh = (): Checkpoint => ({ variant: context.variant ?? "pi_structural_v1", observation: freshObservation(context.changedPaths), version: ROUTING_VERSION, snapshotId: context.snapshotId, state: "IDLE", ordinal: 0, enabled: false, routes: [], seenPaths: [...context.changedPaths], textVerified: [], searches: 0, searchPaths: {}, pages: {}, weakSignals: [],
     metrics: { version: ROUTING_VERSION, triggered: 0, activated: 0, structuralAttempts: 0, verified: 0, degraded: 0, suppressed: 0, reasons: {} } });
   let data = fresh();
   const extension: ExtensionFactory = pi => {
@@ -53,6 +58,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       if (data.routes.some(r => r.routeId === routeId)) return;
       const route: Route = { ...signal, path, routeId, state: "IDLE", trigger: tool, triggerToolOrdinal: data.ordinal, structuralCalls: 0, verifiedPaths: [], candidates: [] };
       data.routes.push(route); data.metrics.triggered++;
+      data.observation.episodes[routeId] = { R0: true, R1: false, R2: false, R3: false, R4: false };
       data.metrics.reasons[signal.reason] = (data.metrics.reasons[signal.reason] ?? 0) + 1;
       const priorPaths = Object.hasOwn(data.searchPaths, signal.targetHint) ? data.searchPaths[signal.targetHint]! : [];
       const relevantText = signal.routeType === "STRUCTURAL_ESCALATION" ? data.textVerified.length > 0 : priorPaths.some(p => data.textVerified.includes(p));
@@ -68,15 +74,16 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         pi.setActiveTools([...new Set([...pi.getActiveTools(), ...STRUCTURAL_TOOLS])].filter(t => allowed.has(t)));
         data.enabled = true;
       }
-      transition(route, "RECOMMENDED"); return guidance(signal);
+      transition(route, "RECOMMENDED"); return !context.variant || context.variant === "pi_structural_v1" ? guidance(signal) : investigationGuidance(signal);
     };
     pi.on("session_start", (_event, ctx) => {
       data = fresh();
       for (const entry of ctx.sessionManager.getBranch()) {
         if (entry.type !== "custom" || entry.customType !== ROUTING_ENTRY) continue;
         const saved = entry.data as Checkpoint | undefined;
-        if (saved?.version === ROUTING_VERSION && saved.snapshotId === context.snapshotId) data = structuredClone(saved);
+        if (saved?.version === ROUTING_VERSION && saved.snapshotId === context.snapshotId && (saved.variant ?? "pi_structural_v1") === (context.variant ?? "pi_structural_v1")) data = structuredClone(saved);
       }
+      data.observation ??= freshObservation(context.changedPaths);
       pi.setActiveTools([...TEXT_TOOLS, ...(data.enabled ? STRUCTURAL_TOOLS : [])].filter(t => allowed.has(t)));
       persist();
     });
@@ -84,6 +91,11 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       data.ordinal++;
       if (!STRUCTURAL_TOOLS.includes(event.toolName)) return;
       const route = current();
+      const attemptedRoute = route ?? data.routes.findLast(r => r.activationOrdinal !== undefined);
+      if (attemptedRoute) {
+        const stages = data.observation.episodes[attemptedRoute.routeId] ??= { R0: true, R1: false, R2: false, R3: false, R4: false };
+        stages.R1 = true; if (event.toolName === "traverse_graph") stages.R2 = true;
+      }
       const exhausted = !route || route.structuralCalls >= limits.maxStructuralCallsPerEpisode || data.metrics.structuralAttempts >= limits.maxStructuralCallsTotal;
       if (exhausted) {
         if (route) suppress(route, "budget_exhausted");
@@ -97,6 +109,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
             resolved.suppressionReason = reason; data.state = "SUPPRESSED"; persist(resolved);
           }
         }
+        persist();
         context.onBlockedCall(event.toolName);
         return { block: true, reason: "Structural investigation budget reached; continue with immutable text/source tools." };
       }
@@ -151,6 +164,16 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
           if (pressure && !data.enabled) {
             const hint = propose({ routeType: "STRUCTURAL_ESCALATION", targetHint: "current-investigation", relationHint: "repository relationships", reason: "search_pressure", strength: "high" }, "", "search_text");
             if (hint) hints.push(hint);
+          }
+        }
+      }
+      const verified = observeResult(data.observation, event, context.snapshotId, route?.routeId, data.ordinal);
+      if (context.variant === "pi_structural_v2_synthesize") {
+        for (const source of verified) {
+          const key = JSON.stringify([source.routeId, source.path]);
+          if (!data.observation.synthesized.includes(key)) {
+            data.observation.synthesized.push(key);
+            if (!hints.includes(IMPACT_SYNTHESIS_CHECKPOINT)) hints.push(IMPACT_SYNTHESIS_CHECKPOINT);
           }
         }
       }

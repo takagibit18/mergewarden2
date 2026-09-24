@@ -73,7 +73,7 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
         const blocks = records(message.content).filter(b => b.type === "text" && typeof b.text === "string");
         // Routing appends advisory context as separate blocks. Only the original
         // JSON block is tool data; guidance never becomes evidence or attribution.
-        const routed = blocks.length > 1 && blocks.slice(1).every(b => String(b.text).startsWith("[Structural investigation recommended]\n") || String(b.text).startsWith("Structural investigation is degraded."));
+        const routed = blocks.length > 1 && blocks.slice(1).every(b => String(b.text).startsWith("[Structural investigation recommended]\n") || String(b.text).startsWith("Structural investigation is degraded.") || String(b.text).startsWith("[Structural investigation]\n") || String(b.text).startsWith("[Impact synthesis checkpoint]\n"));
         const response: unknown = JSON.parse(routed ? String(blocks[0]!.text) : call.resultText);
         if (!object(response)) throw Error(); call.response = response;
       }

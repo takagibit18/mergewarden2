@@ -107,9 +107,9 @@ test('routing none preserves current G1 payload and navigation prompt',async t=>
  assert.match(r.requests[0].messages[0].content,/Structural repository navigation is available/);
 });
 
-function hooks(snapshotId='s',entries=[],allowed=new Set([...TEXT_TOOLS,...STRUCTURAL_TOOLS])){
+function hooks(snapshotId='s',entries=[],allowed=new Set([...TEXT_TOOLS,...STRUCTURAL_TOOLS]),variant="pi_structural_v1"){
  const handlers={};let active=[...allowed];const saved=[];let blocked=0;
- const routing=createStructuralRouting({snapshotId,changedPaths:['app.py'],onBlockedCall:()=>blocked++},allowed);
+ const routing=createStructuralRouting({variant,snapshotId,changedPaths:['app.py'],onBlockedCall:()=>blocked++},allowed);
  const pi={on:(name,fn)=>handlers[name]=fn,appendEntry:(customType,data)=>saved.push({type:'custom',customType,data:structuredClone(data)}),getActiveTools:()=>active,setActiveTools:names=>active=names,getAllTools:()=>[...allowed].map(name=>({name}))};
  routing.extension(pi);handlers.session_start({}, {sessionManager:{getBranch:()=>entries}});
  const result=(name,details,input={})=>{handlers.tool_call({toolName:name,input});return handlers.tool_result({toolName:name,details:{snapshotId,status:'ok',...details},input,content:[]});};
@@ -165,4 +165,45 @@ test('two episodes share six-call total budget across restore, then suppress dis
  const restored=hooks('s',h.saved);cue(restored,'bar');for(let i=0;i<2;i++)restored.result('search_entity',{revision:'head',items:[]});
  assert.equal(restored.handlers.tool_call({toolName:'search_entity'}).block,true);
  cue(restored,'baz');assert.equal(restored.routing.metrics().activated,2);assert.equal(restored.routing.metrics().structuralAttempts,6);assert.equal(restored.routing.metrics().suppressed,3);
+});
+
+for (const variant of ['pi_structural_v2_investigate','pi_structural_v2_synthesize']) test(variant+': native payload uses shared activation and budgets; synthesis appears only for C',async t=>{
+ const r=await run(t,{...signature,routing:variant,steps:[diff(),entity(),traverse,source('caller.py'),source('caller.py'),submit()]});
+ assert.equal(r.result.report.status,'completed');
+ const texts=r.rows.filter(r=>r.message?.role==='toolResult').flatMap(r=>r.message.content).map(c=>c.text??'');
+ assert.equal(texts.filter(t=>t.startsWith('[Structural investigation]')).length,1);
+ assert.equal(texts.filter(t=>t.startsWith('[Impact synthesis checkpoint]')).length,variant.endsWith('synthesize')?1:0);
+ assert.equal(r.manifest.metrics.graphToolCalls,2);assert.equal(r.requests.length,7);
+ const trace=analyzeRetrieval({runKey:variant,snapshotId:r.manifest.snapshotId,findings:[],jsonl:r.rows.map(JSON.stringify).join('\n')});
+ assert.deepEqual(trace.traceIssues,[]);assert.equal(trace.metrics.novelEntityToSource,1);
+ const o=r.rows.findLast(r=>r.customType===ROUTING_ENTRY).data.observation;
+ assert.equal(o.graphDiscoveredPaths[0].discoveryMode,'traversal');assert.ok(Object.values(o.episodes)[0].R4);
+});
+const chooks=(entries=[])=>hooks('s',entries,new Set([...TEXT_TOOLS,...STRUCTURAL_TOOLS]),'pi_structural_v2_synthesize');
+const activate=h=>h.result('read_diff',{path:'app.py',offset:0,totalLines:2,lines:['-def foo(a):','+def foo(a,b):']});
+const graph=h=>h.result('search_entity',{revision:'head',items:[{entityId:'x',path:'caller.py',startLine:2,endLine:4}]});
+const readCaller=(h,extra={})=>h.result('read_source',{revision:'head',path:'caller.py',startLine:1,endLine:5,...extra});
+test('C deduplicates route/path across restoration and rejects another variant state',()=>{
+ const h=chooks();activate(h);graph(h);assert.match(JSON.stringify(readCaller(h)),/Impact synthesis checkpoint/);
+ const restored=chooks(h.saved);assert.equal(readCaller(restored),undefined);
+ assert.equal(hooks('s',h.saved).routing.metrics().activated,0);
+});
+for(const prior of ['search_text','read_source','read_diff','graph_hint']) test('C excludes previously exposed path via '+prior,()=>{
+ const h=chooks();activate(h);
+ if(prior==='graph_hint')h.result('traverse_graph',{revision:'head',items:[],hints:[{candidates:[{path:'caller.py'}]}]});
+ else h.result(prior,{revision:'base',path:'caller.py',items:[{path:'caller.py'}]});
+ graph(h);assert.equal(readCaller(h),undefined);
+});
+test('C rejects errors, base source, wrong snapshot and incomplete ranges; later successful read verifies',()=>{
+ const h=chooks();activate(h);
+ h.handlers.tool_result({toolName:'search_entity',isError:true,details:{snapshotId:'s',status:'error',items:[{entityId:'x',path:'caller.py',startLine:2,endLine:4}]},input:{},content:[]});
+ assert.equal(readCaller(h),undefined);
+ const good=chooks();activate(good);graph(good);
+ for(const extra of [{revision:'base'},{snapshotId:'other'},{endLine:2},{status:'error'}])assert.equal(readCaller(good,extra),undefined);
+ assert.match(JSON.stringify(readCaller(good)),/Impact synthesis checkpoint/);
+});
+test('C can verify another pending Graph source after first route verification without more structural calls',()=>{
+ const h=chooks();activate(h);h.result('traverse_graph',{revision:'head',items:[{entityId:'x',path:'caller.py',startLine:2,endLine:4,depth:1},{entityId:'y',path:'second.py',startLine:1,endLine:3,depth:1}]});
+ assert.match(JSON.stringify(readCaller(h)),/Impact synthesis checkpoint/);
+ assert.match(JSON.stringify(h.result('read_source',{revision:'head',path:'second.py',startLine:1,endLine:3})),/Impact synthesis checkpoint/);
 });

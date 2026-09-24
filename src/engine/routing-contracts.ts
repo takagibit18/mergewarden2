@@ -1,4 +1,4 @@
-export type RoutingMode = "none" | "pi_structural_v1";
+export type RoutingMode = "none" | "pi_structural_v1" | "pi_structural_v2_investigate" | "pi_structural_v2_synthesize";
 export interface RoutingBudget { maxRouteEpisodes: number; maxStructuralCallsPerEpisode: number; maxStructuralCallsTotal: number }
 export const ROUTING_VERSION = "pi-structural-routing-1" as const;
 export const ROUTING_THRESHOLDS = Object.freeze({ searchPressure: 3, distinctPaths: 8,
@@ -9,6 +9,7 @@ export interface RoutingMetrics {
   firstActivationToolOrdinal?: number;
 }
 export interface RoutingContext {
+  variant?: Exclude<RoutingMode, "none">;
   snapshotId: string; changedPaths: string[]; budget?: Partial<RoutingBudget>;
   /** Hook rejections still pass through the engine's admission/accounting boundary. */
   onBlockedCall(name: string): void;
