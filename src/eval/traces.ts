@@ -69,7 +69,14 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
       if (!call || call.resultEvent !== undefined || call.name !== message.toolName) { trace.issues.push("Orphan/duplicate/mismatched tool result"); continue; }
       call.resultEvent = event; call.resultEntryId = String(e.id); call.isError = message.isError === true;
       call.resultText = records(message.content).filter(b => b.type === "text" && typeof b.text === "string").map(b => String(b.text)).join("\n");
-      try { const response: unknown = JSON.parse(call.resultText); if (!object(response)) throw Error(); call.response = response; }
+      try {
+        const blocks = records(message.content).filter(b => b.type === "text" && typeof b.text === "string");
+        // Routing appends advisory context as separate blocks. Only the original
+        // JSON block is tool data; guidance never becomes evidence or attribution.
+        const routed = blocks.length > 1 && blocks.slice(1).every(b => String(b.text).startsWith("[Structural investigation recommended]\n") || String(b.text).startsWith("Structural investigation is degraded."));
+        const response: unknown = JSON.parse(routed ? String(blocks[0]!.text) : call.resultText);
+        if (!object(response)) throw Error(); call.response = response;
+      }
       catch { trace.issues.push(`Non-JSON tool response: ${call.id}`); }
     }
   }

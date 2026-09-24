@@ -45,6 +45,8 @@ export class ReviewEngine {
     requireCondition(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 3_600_000, "Timeout must be 1..3600000 ms");
     requireCondition(Number.isInteger(maxTools) && maxTools > 0 && maxTools <= 1000, "Tool limit must be 1..1000");
     requireText(options.model.provider, "provider"); requireText(options.model.modelId, "model");
+    const routingEnabled = options.evaluation?.routing === "pi_structural_v1";
+    requireCondition(!routingEnabled || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
     const abort = new AbortController(); let timedOut = false; let budgetExceeded = false;
     const cancel = () => abort.abort(new Error("Review cancelled"));
     options.signal?.addEventListener("abort", cancel, { once: true }); if (options.signal?.aborted) cancel();
@@ -87,6 +89,14 @@ export class ReviewEngine {
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = "";
       let toolRequests = 0; let toolAccepted = 0; let toolExecuted = 0; let toolRejected = 0;
+      let routingRejected = 0;
+      const onBlockedCall = (_name: string) => {
+        toolRequests++; toolRejected++;
+        if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) return;
+        if (toolAccepted + routingRejected >= maxTools) {
+          budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted"));
+        } else routingRejected++;
+      };
       let toolQueue: Promise<unknown> = Promise.resolve();
       abort.signal.addEventListener("abort", stopAcceptingTools, { once: true });
       const readDiffLines = new Map<string, { total: number; seen: Set<number> }>();
@@ -97,7 +107,7 @@ export class ReviewEngine {
             toolRejected++;
             return Promise.reject(abort.signal.reason ?? new Error(submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools"));
           }
-          if (toolAccepted >= maxTools) {
+          if (toolAccepted + routingRejected >= maxTools) {
             toolRejected++; budgetExceeded = true; acceptingTools = false;
             abort.abort(new Error("Tool budget exhausted"));
             return Promise.reject(new Error("Tool budget exhausted"));
@@ -173,7 +183,7 @@ export class ReviewEngine {
         try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}) });
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);
@@ -205,6 +215,7 @@ export class ReviewEngine {
       const report = controller.report(); manifest.usage = runtime.usage();
       const graphMetrics = (retrieval ?? graph!).metrics;
       manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
+      if (runtime.routingMetrics) manifest.metrics.routing = runtime.routingMetrics();
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);
       return { kind: "report", runId, report, ...paths };
