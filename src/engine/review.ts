@@ -1,3 +1,5 @@
+import { OperationGate } from "./operations.ts";
+import type { OperationOrigin } from "./operations.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -94,47 +96,29 @@ export class ReviewEngine {
       const evidenceRegistry = new EvidenceRegistry(store.manifest.identity.id);
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = "";
-      let toolRequests = 0; let toolAccepted = 0; let toolExecuted = 0; let toolRejected = 0;
-      let routingRejected = 0;
-      const onBlockedCall = (_name: string) => {
-        toolRequests++; toolRejected++;
-        if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) return;
-        if (toolAccepted + routingRejected >= maxTools) {
-          budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted"));
-        } else routingRejected++;
-      };
-      let toolQueue: Promise<unknown> = Promise.resolve();
+      const gate = new OperationGate({ limit: maxTools, signal: abort.signal,
+        available: () => acceptingTools && controller?.state?.status === "reviewing" && !submitted,
+        unavailableReason: () => submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools",
+        exhausted: () => { budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted")); } });
+      const onBlockedCall = (_name: string) => gate.blockedModelCall();
       abort.signal.addEventListener("abort", stopAcceptingTools, { once: true });
       const readDiffLines = new Map<string, { total: number; seen: Set<number> }>();
-      const tool = (name: string, description: string, schema: Record<string, unknown>, execute: (input: Record<string, unknown>) => Promise<unknown>): RuntimeTool => ({ name, description, schema,
-        execute(input) {
-          toolRequests++;
-          if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) {
-            toolRejected++;
-            return Promise.reject(abort.signal.reason ?? new Error(submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools"));
-          }
-          if (toolAccepted + routingRejected >= maxTools) {
-            toolRejected++; budgetExceeded = true; acceptingTools = false;
-            abort.abort(new Error("Tool budget exhausted"));
-            return Promise.reject(new Error("Tool budget exhausted"));
-          }
-          toolAccepted++;
-          const job = toolQueue.then(async () => {
-            abort.signal.throwIfAborted(); requireCondition(controller?.state?.status === "reviewing", "Run is not accepting tools");
-            requireCondition(!submitted, "Final batch already submitted; end the review");
-            toolExecuted++;
-            notify({ phase: "tool", runId, tool: name, toolCalls: toolExecuted });
-            try {
-              const result = await execute(args(input));
-              abort.signal.throwIfAborted();
-              return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
-            } catch (error) {
-              if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
-              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
-            }
-          });
-          toolQueue = job.catch(() => undefined); return job;
-        } });
+      const operations = new Map<string, (input: Record<string, unknown>, origin: OperationOrigin) => Promise<unknown>>();
+      const executeOperation = (origin: OperationOrigin, name: string, input: unknown) => gate.run(origin, async () => {
+        const execute = operations.get(name); requireCondition(execute, "Operation outside review allowlist");
+        notify({ phase: "tool", runId, tool: name, toolCalls: gate.counts.model.executed });
+        try {
+          const result = await execute(args(input), origin);
+          return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
+        } catch (error) {
+          if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
+          throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
+        }
+      });
+      const tool = (name: string, description: string, schema: Record<string, unknown>, execute: (input: Record<string, unknown>, origin: OperationOrigin) => Promise<unknown>): RuntimeTool => {
+        operations.set(name, execute);
+        return { name, description, schema, execute: input => executeOperation("model", name, input) };
+      };
       const tools = [
         tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
           const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200));
@@ -213,7 +197,7 @@ export class ReviewEngine {
       finally { if (rejectAbort) abort.signal.removeEventListener("abort", rejectAbort); abort.signal.removeEventListener("abort", stopRuntime); }
       acceptingTools = false;
       if (abort.signal.aborted) await bounded(runtime.abort().catch(() => undefined));
-      await bounded(toolQueue);
+      await bounded(gate.settled());
       if (abort.signal.reason instanceof PersistenceFailure) throw abort.signal.reason;
       if (abort.signal.aborted) modelError = timedOut ? "Review time budget exhausted" : budgetExceeded ? "Review tool budget exhausted" : "Review cancelled";
       const state = controller.state!;
@@ -224,6 +208,7 @@ export class ReviewEngine {
       await controller.dispatch({ type: "run.finished", outcome, summary });
       const report = controller.report(); manifest.usage = runtime.usage();
       const graphMetrics = (retrieval ?? graph!).metrics;
+      const { requested: toolRequests, accepted: toolAccepted, executed: toolExecuted, rejected: toolRejected } = gate.counts.model;
       manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
       if (runtime.routingMetrics) manifest.metrics.routing = runtime.routingMetrics();
       notify({ phase: "delivering", runId });
