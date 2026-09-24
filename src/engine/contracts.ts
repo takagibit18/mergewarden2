@@ -20,6 +20,8 @@ export interface ReviewRuntime {
 }
 export type RuntimeFactory = (options: { repositoryPath: string; runDir: string; stateDir: string; model: ModelSelection; tools: RuntimeTool[]; evaluation?: boolean; routing?: import("./routing-contracts.ts").RoutingContext }) => Promise<ReviewRuntime>;
 export interface FinalSubmission { summary: string; reviewedPaths: string[]; findings: FindingCandidate[] }
+/** Model transport; normalization produces the unchanged self-contained domain contract. */
+export interface FinalSubmissionInput { summary: string; reviewedPaths: string[]; findings: import("../application/evidence-registry.ts").FindingInput[] }
 export interface RunManifest {
   schemaVersion: 1; runId: string; snapshotId: string; repositoryPath: string; model: ModelSelection;
   configurationFingerprint: string; limits: { timeoutMs: number; maxToolCalls: number };

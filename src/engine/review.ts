@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers";
 import { ReviewController } from "../application/review-controller.ts";
 import { checkEvidence } from "../application/evidence-check.ts";
+import { EvidenceRegistry } from "../application/evidence-registry.ts";
 import { assertCandidate, isRecord, requireCondition, requireText } from "../domain/validation.ts";
 import type { ReviewReport } from "../domain/contracts.ts";
 import { isolatedState, sha256, writeJson } from "../infrastructure/files.ts";
@@ -12,14 +13,15 @@ import { LazyCodeGraph } from "../graph/lazy-graph.ts";
 import { LazyLocAgent } from "../experiments/locagent/lazy.ts";
 import type { Relation } from "../graph/contracts.ts";
 import { deliver, readRun, runPath } from "./reports.ts";
-import type { FinalSubmission, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
+import type { FinalSubmission, FinalSubmissionInput, ReviewOptions, ReviewProgress, ReviewResult, ReviewRuntime, RunManifest, RuntimeFactory, RuntimeTool } from "./contracts.ts";
 const string = { type: "string", minLength: 1, maxLength: 4000 };
 const revision = { type: "string", enum: ["base", "head"] };
 const integer = { type: "integer", minimum: 1 };
 const CLEANUP_TIMEOUT_MS = 1_000;
 const object = (properties: Record<string, unknown>, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
 const evidence = object({ snapshotId: string, revision, path: string, startLine: integer, endLine: integer, contentSha256: { type: "string", pattern: "^[a-f0-9]{64}$" } }, ["snapshotId", "revision", "path", "startLine", "endLine", "contentSha256"]);
-const finding = object({ id: string, title: string, claim: string, trigger: string, impact: string, severity: { type: "string", enum: ["critical", "high", "medium", "low"] }, evidence: { type: "array", items: evidence, minItems: 1, maxItems: 20 } }, ["id", "title", "claim", "trigger", "impact", "severity", "evidence"]);
+const evidenceInput = { anyOf: [object({ evidenceRefId: { type: "string", pattern: "^ev_[a-f0-9]{64}$" } }, ["evidenceRefId"]), evidence] };
+const finding = object({ id: string, title: string, claim: string, trigger: string, impact: string, severity: { type: "string", enum: ["critical", "high", "medium", "low"] }, evidence: { type: "array", items: evidenceInput, minItems: 1, maxItems: 20 } }, ["id", "title", "claim", "trigger", "impact", "severity", "evidence"]);
 function args(value: unknown): Record<string, unknown> { requireCondition(isRecord(value), "Tool arguments must be an object"); return value; }
 function text(value: unknown): string { requireText(value, "tool argument"); return value; }
 function rev(value: unknown): "base" | "head" { requireCondition(value === "base" || value === "head", "Invalid source revision"); return value; }
@@ -86,6 +88,7 @@ export class ReviewEngine {
       manifest.toolExposure = retrieval ? "text+locagent" : graphEnabled ? "text+graph" : "text-only";
       let navigationDegraded = false; let navigationErrors = 0;
       const sourceReads = new Set<string>();
+      const evidenceRegistry = new EvidenceRegistry(store.manifest.identity.id);
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = "";
       let toolRequests = 0; let toolAccepted = 0; let toolExecuted = 0; let toolRejected = 0;
@@ -129,8 +132,11 @@ export class ReviewEngine {
           toolQueue = job.catch(() => undefined); return job;
         } });
       const tools = [
-        tool("read_source", "Read 1–200 lines of immutable base/head source; copy the returned hash and exact range for evidence.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
-          const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200)); sourceReads.add(sourceKey(page)); return page;
+        tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
+          const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200));
+          if (page.status !== "ok" || page.endLine < page.startLine) return page;
+          sourceReads.add(sourceKey(page));
+          return { ...page, _mergewarden: { schemaVersion: 1, evidenceRefId: evidenceRegistry.register(page) } };
         }),
         tool("read_diff", "Read a page of the frozen change. Follow nextCursor until truncated=false before marking this path reviewed.", object({ path: string, cursor: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } }, ["path"]), async input => {
           const page = await store.diff(text(input.path), number(input.cursor, 0), number(input.limit, 100));
@@ -142,10 +148,11 @@ export class ReviewEngine {
           return page;
         }),
         tool("search_text", "Literal search of immutable source. Truncated results do not establish absence elsewhere.", object({ revision, query: string, limit: { type: "integer", minimum: 1, maximum: 100 } }, ["revision", "query"]), async input => store.search(rev(input.revision), text(input.query), number(input.limit, 50))),
-        tool("submit_review", "Submit exactly once after investigation: mature advisory findings and the paths fully reviewed. Never submit hypotheses as findings.", object({ summary: string, reviewedPaths: { type: "array", items: string, maxItems: 200, uniqueItems: true }, findings: { type: "array", items: finding, maxItems: 100 } }, ["summary", "reviewedPaths", "findings"]), async input => {
+        tool("submit_review", "Submit the final mature advisory findings after investigation. reviewedPaths contains only fully read changed paths. A finding may explicitly select changed and untouched source evidence using {evidenceRefId} from read_source (preferred) or full EvidenceRefs. Include only evidence the finding depends on. Never submit hypotheses as findings.", object({ summary: string, reviewedPaths: { type: "array", items: string, maxItems: 200, uniqueItems: true }, findings: { type: "array", items: finding, maxItems: 100 } }, ["summary", "reviewedPaths", "findings"]), async input => {
           requireText(input.summary, "summary"); requireCondition(input.summary.length <= 4000, "Summary exceeds limit");
           requireCondition(Array.isArray(input.findings) && input.findings.length <= 100 && Array.isArray(input.reviewedPaths) && input.reviewedPaths.length <= 200, "Invalid submission");
-          const submission = input as unknown as FinalSubmission;
+          const transport = input as unknown as FinalSubmissionInput;
+          const submission: FinalSubmission = { ...transport, findings: evidenceRegistry.normalize(transport.findings) };
           requireCondition(new Set(submission.reviewedPaths).size === submission.reviewedPaths.length, "Duplicate reviewed path");
           const ids = new Set<string>();
           for (const path of submission.reviewedPaths) {

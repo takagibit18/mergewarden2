@@ -1,6 +1,7 @@
 import type { EvidenceRef, FindingCandidate } from "../../domain/contracts.ts";
 import { isObject } from "../../engine/tool-result.ts";
 import { decodePiTrace, issue, type ToolCall, type TraceIssue } from "./decode.ts";
+import { normalizeSubmittedFindings } from "./submission.ts";
 
 export const rows = (v: unknown): Record<string, unknown>[] => Array.isArray(v) ? v.filter(isObject) : [];
 export const end = (c: ToolCall) => c.resultEvent ?? Infinity;
@@ -72,7 +73,7 @@ export function observe(input: ProvenanceInput) {
   const discoveries = calls.flatMap(c => locations(c, snapshot).map(location => ({ graphCall: c, location, ...novelty(calls, c, location, snapshot), coverageLimited: coverageLimited(c) })));
   const sourceLinks = discoveries.flatMap(d => calls.filter(c => c.callEvent > end(d.graphCall) && sourceCovers(c, d.location, snapshot)).map(source => ({ ...d, sourceCall: source, strictNovel: d.novelPath && d.novelEntity })));
   const findings = input.findings.map(finding => {
-    const submission = calls.findLast(c => c.name === "submit_review" && !c.isError && c.response?.accepted === true && (c.response.snapshotId === undefined || c.response.snapshotId === snapshot) && rows(c.args.findings).some(f => canonical(f) === canonical(finding)));
+    const submission = calls.findLast(c => c.name === "submit_review" && !c.isError && c.response?.accepted === true && (c.response.snapshotId === undefined || c.response.snapshotId === snapshot) && normalizeSubmittedFindings(c, calls, snapshot).some(f => canonical(f) === canonical(finding)));
     const reads = finding.evidence.map(e => calls.find(c => sourceMatches(c, e, snapshot) && end(c) < (submission?.callEvent ?? -1)));
     const chains = sourceLinks.filter(l => finding.evidence.some(e => sourceMatches(l.sourceCall, e, snapshot)) && end(l.sourceCall) < (submission?.callEvent ?? -1)).map(l => ({
       graphCallId: l.graphCall.id, neighborCallId: l.graphCall.id, neighborToolOrdinal: l.graphCall.ordinal, neighborEntryId: l.graphCall.resultEntryId!,
