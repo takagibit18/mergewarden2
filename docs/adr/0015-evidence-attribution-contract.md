@@ -46,3 +46,11 @@ First demonstrate the existing multi-event final batch failure with fault inject
 P0: deterministic decoder/provenance tests, full verify, immutable v2 capture, both historical Routing datasets replayed twice with byte-identical v3 output. Only then implement registry and final acceptance. Final validation adds real offline Pi SDK → tools → engine → journal → native trace → analyzer fixtures, including recovery and persistence failures. Optional live delivery checks are capped at four previously used positives, after all engineering gates; they are not a quality experiment.
 
 Graph v4, routing triggers/budgets/thresholds, B/C guidance, corpus, labels and model configuration remain frozen. Semantic correctness and evidence relevance remain separate human adjudication tasks.
+
+## Implemented boundary
+
+P0 was gated before P1 with 307 passing checks and deterministic replay of the 16-run Routing v1 and 18-run ABC sessions. V2 predictions and artifacts remain immutable. The P1 transport extension resolves explicit `{evidenceRefId}` values through successful, model-visible read_source results for offline canonical matching; legacy sessions still replay identically.
+
+Fault injection confirmed that the legacy multi-event final batch can persist one accepted and one pending candidate. The new Engine uses exactly one final_batch.accepted event. Controller persistence failure is sticky even when the underlying journal would accept another write; before-write and uncertain after-write faults never permit an in-process retry or completed report delivery. Existing per-candidate events remain readable for historical recovery and incremental mode.
+
+The registry belongs to the application boundary, not Routing. IDs are SHA-256 of the ordered tuple snapshotId, revision, path, startLine, endLine, contentSha256, prefixed ev_. Membership is run-scoped: a deterministic ID from an earlier run works only if the identical source has independently been read and registered in the current run. No global cache, relevance score or RouteReceipt is introduced.

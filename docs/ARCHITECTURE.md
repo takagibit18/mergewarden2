@@ -1,5 +1,42 @@
 # MergeWarden 2.0 顶层设计与决策记录
 
+
+## Current Runtime Contract · 2026-09-24
+
+此节描述当前实现；后面的 0.1 架构基线保留为设计历史。具体契约见 [ADR 0015](adr/0015-evidence-attribution-contract.md)。
+
+SnapshotStore 冻结 base/head。ReviewEngine 管理工具预算、源码读取证明、每个 run 独立的 Evidence Registry、提交预检与交付。Pi Runtime 负责唯一模型/工具循环以及原生会话；MergeWarden 工具结果是单个 JSON object，宿主 notice 和 evidenceRefId 放在 `_mergewarden` namespace。Routing extension 只控制激活、调查卡、预算和 telemetry；默认 routing 仍是 none，A/B/C 共用原触发逻辑。
+
+```mermaid
+flowchart TD
+  S[Immutable Snapshot / SnapshotStore] --> E[ReviewEngine]
+  E --> P[Pi session]
+  P --> T[Text / structural tools]
+  R[Routing control plane] --> T
+  T --> Read[read_source: source observation]
+  Read --> Registry[Run-scoped Evidence Registry]
+  Registry --> Input[Model-selected submit_review input]
+  Input --> Normalize[Normalize explicit Evidence IDs]
+  Normalize --> Preflight[Complete coverage / candidate / integrity / read-proof preflight]
+  Preflight --> Accept[ReviewController: atomic final_batch.accepted]
+  Accept --> Report[Self-contained ReviewReport / verified delivery]
+  P --> Journal[PiSessionJournal / native session.jsonl]
+  Accept --> Journal
+  Journal --> Attr[Offline Attribution v3]
+  Report --> Attr
+  Attr --> Provenance[Finding-level discovery provenance]
+```
+
+Evidence IDs 是六个不可变字段的确定性 hash。模型可以选择 `{evidenceRefId}` 或旧完整 EvidenceRef；Engine 展开 ID 并稳定去重，FindingCandidate 与 report.json/report.md 仍保存完整引用。本轮没有读取过的 ID、外部 snapshot 引用和不完整证据在业务状态变化之前被拒绝。
+
+final_only 用一个 composite event 同时接受候选批次与更新 coverage。输入错误属于 PRE_ACCEPTANCE_ERROR，可修正；ACCEPTED 之后禁止第二次 final submission；PERSISTENCE_FAILURE 使 controller/run 失效，不能当作参数错误重试，也不能确认 completed 交付。历史 candidates.submitted / candidate.decided / unit.finished 与 incremental_candidates reducer 路径保持兼容。单事件持久化不等于跨崩溃 exactly-once 保证。
+
+Attribution v3 只消费 active native Pi branch 的 assistant toolCall、toolResult content 和最终 accepted Finding evidence。它共享 G0/G1 的时序、状态、exposure、novelty、source matching 与 normalized submission matching。details、Graph DB、Router CustomEntry、private thinking 和 reference labels 不提供 discovery credit。普通工具错误是 call-local；真实时间线损坏仍阻止严格归因。partial 的确定关系可提供带 coverageLimited 的正证据，不能提供缺失关系的反证。
+
+三个明确边界：Evidence Registry 不决定 finding 是否正确；Routing 不自动给 finding 填 evidence；Attribution 不反馈进运行时模型决策。Graph 是导航，read_source 是观察，Finding 是模型选择的 claim，ReviewController 是业务接受真值。
+
+## Historical architecture baseline
+
 版本：0.1 | 日期：2026-09-20
 
 ## MergeWarden 2.0
