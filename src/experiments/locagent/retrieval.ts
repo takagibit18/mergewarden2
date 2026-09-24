@@ -47,6 +47,29 @@ export class LocAgentRetrieval {
     else try{this.contents=new SparseIndex(this.chunks.map(c=>c.text));this.contentDocumentBytes=bytes;}catch{this.chunks=[];this.contentWarning='Content retrieval index failed to initialize; exact/entity search and graph traversal remain available.';}
   }
   stats(){return {entityIndex:this.entities.stats(),contentIndex:this.contents?.stats(),contentDocumentBytes:this.contentDocumentBytes,contentChunks:this.chunks.length,contentAvailable:Boolean(this.contents)};}
+  /** Host-only exact metadata query. Uses the same frozen entities; never creates edges. */
+  locate(input: { anchors: import('../../engine/dispatch-contracts.ts').AnchorHint[] }) {
+    requireThat(Array.isArray(input.anchors) && input.anchors.length > 0 && input.anchors.length <= 32, 'Expected 1..32 observed anchor hints');
+    const found = new Map<string, SymbolFact>();
+    for (const hint of input.anchors) {
+      requireThat(typeof hint.path === 'string' && hint.path.length > 0, 'Exact anchor path required');
+      // Search is candidate generation only. The complete file metadata prevents topK
+      // or filePattern fallback from silently choosing a different file/scope.
+      if (hint.name) this.search({ searchTerms: [hint.name], filePattern: hint.path, topK: 10 });
+      let matches = this.symbols.filter(s => s.path === hint.path && s.snapshotId === this.data.snapshotId
+        && (hint.kind ? s.kind === hint.kind : s.kind === 'function' || s.kind === 'class')
+        && (!hint.name || s.name === hint.name) && (!hint.qualifiedName || s.qualifiedName === hint.qualifiedName)
+        && (hint.startLine === undefined || s.startLine <= hint.startLine && s.endLine >= (hint.endLine ?? hint.startLine)));
+      if (!hint.kind && hint.startLine !== undefined && matches.length) {
+        const narrowest = Math.min(...matches.map(s => s.endLine - s.startLine));
+        matches = matches.filter(s => s.endLine - s.startLine === narrowest);
+      }
+      for (const s of matches) found.set(s.id, s);
+    }
+    const all = [...found.values()];
+    return { ...this.envelope(), items: all.slice(0, 10).map(metadata), truncated: all.length > 10,
+      anchorStatus: all.length === 0 ? 'anchor_missing' : all.length === 1 ? 'resolved' : 'anchor_ambiguous' };
+  }
   private envelope(){return {status:this.data.coverage.parseIncompleteFiles?'parse_incomplete':this.data.generationState==='partial'?'partial':this.data.coverage.unsupportedFiles||!this.data.coverage.eligibleFiles?'unsupported':'ok',snapshotId:this.data.snapshotId,generationId:this.data.generationId,generationState:this.data.generationState,graphScope:this.data.graphScope,revision:'head',coverage:this.data.coverage,warnings:[...this.data.warnings.slice(0,10).map(w=>w.slice(0,512)),...(this.contentWarning?[this.contentWarning]:[]),'Candidate matches and previews are exploration only; use read_source for evidence.'],explorationOnly:true};}
   private exact(term:string):SymbolFact[]{const found=this.symbols.filter(s=>s.id===term||entityName(s)===term||s.qualifiedName===term);return found.length||!term.endsWith('.__init__')?found:this.exact(term.slice(0,-9));}
   private contentEntity(chunk:{path:string;startLine:number;endLine:number;text:string},term:string):SymbolFact|undefined{
