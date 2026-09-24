@@ -3,12 +3,14 @@ import type { DeliveryPolicy, EventPayload, ReviewReport, ReviewState, SnapshotI
 import { reduceEvent } from "../domain/reducer.ts";
 import { requireCondition } from "../domain/validation.ts";
 import type { SessionJournal } from "../ports/journal.ts";
+import { PersistenceFailure } from "../ports/journal.ts";
 export class ReviewController {
   private stateValue: ReviewState | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private journal: SessionJournal;
   private runId: string;
   private snapshot: SnapshotIdentity;
+  private persistenceFailure: PersistenceFailure | undefined;
   constructor(journal: SessionJournal, runId: string, snapshot: SnapshotIdentity) {
     this.journal = journal; this.runId = runId; this.snapshot = structuredClone(snapshot);
   }
@@ -19,10 +21,12 @@ export class ReviewController {
   dispatch(payload: EventPayload): Promise<void> {
     const captured = structuredClone(payload);
     const job = this.queue.then(async () => {
+      if (this.persistenceFailure) throw this.persistenceFailure;
       const event = { schemaVersion: 1 as const, id: randomUUID(), runId: this.runId, snapshotId: this.snapshot.id,
         sequence: (this.stateValue?.sequence ?? 0) + 1, at: new Date().toISOString(), payload: captured };
       const next = reduceEvent(this.stateValue, event);
-      await this.journal.append(event); // Do not mutate visible state on a rejected write.
+      try { await this.journal.append(event); } // State changes only after a confirmed durable write.
+      catch { this.persistenceFailure = new PersistenceFailure(); throw this.persistenceFailure; }
       this.stateValue = next;
     });
     this.queue = job.catch(() => undefined);

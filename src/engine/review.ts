@@ -5,6 +5,7 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { ReviewController } from "../application/review-controller.ts";
 import { checkEvidence } from "../application/evidence-check.ts";
 import { EvidenceRegistry } from "../application/evidence-registry.ts";
+import { PersistenceFailure } from "../ports/journal.ts";
 import { assertCandidate, isRecord, requireCondition, requireText } from "../domain/validation.ts";
 import type { ReviewReport } from "../domain/contracts.ts";
 import { isolatedState, sha256, writeJson } from "../infrastructure/files.ts";
@@ -126,7 +127,8 @@ export class ReviewEngine {
               abort.signal.throwIfAborted();
               return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
             } catch (error) {
-              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
+              if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
+              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
             }
           });
           toolQueue = job.catch(() => undefined); return job;
@@ -168,11 +170,9 @@ export class ReviewEngine {
             requireCondition(candidate.evidence.every(e => sourceReads.has(sourceKey(e))), "Finding evidence must be read with read_source in this run");
           }
           abort.signal.throwIfAborted();
-          await controller!.dispatch({ type: "candidates.submitted", channel: "final_only", candidates: submission.findings });
-          for (const candidate of submission.findings) await controller!.dispatch({ type: "candidate.decided", candidateId: candidate.id, disposition: "accepted", reason: "Advisory claim: structure and frozen evidence integrity verified; semantic correctness requires human review." });
-          for (const path of submission.reviewedPaths) await controller!.dispatch({ type: "unit.finished", unitId: path, outcome: "done" });
+          await controller!.dispatch({ type: "final_batch.accepted", candidates: submission.findings, reviewedPaths: submission.reviewedPaths, reason: "Advisory claim: structure and frozen evidence integrity verified; semantic correctness requires human review." });
           submitted = true; finalSummary = submission.summary;
-          return { accepted: true, findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
+          return { accepted: true, outcome: "ACCEPTED", findings: submission.findings.length, pendingPaths: store.manifest.changedPaths.filter(p => !submission.reviewedPaths.includes(p)), advisoryOnly: true, summary: submission.summary };
         }),
       ];
       if (graphEnabled && !retrieval) {
@@ -212,6 +212,7 @@ export class ReviewEngine {
       acceptingTools = false;
       if (abort.signal.aborted) await bounded(runtime.abort().catch(() => undefined));
       await bounded(toolQueue);
+      if (abort.signal.reason instanceof PersistenceFailure) throw abort.signal.reason;
       if (abort.signal.aborted) modelError = timedOut ? "Review time budget exhausted" : budgetExceeded ? "Review tool budget exhausted" : "Review cancelled";
       const state = controller.state!;
       const complete = submitted && Object.values(state.units).every(v => v === "done") && !modelError;

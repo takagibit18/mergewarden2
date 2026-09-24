@@ -25,6 +25,22 @@ export function reduceEvent(previous: ReviewState | undefined, event: ReviewEven
   const state = structuredClone(previous);
   const payload = event.payload;
   switch (payload.type) {
+    case "final_batch.accepted": {
+      requireCondition(state.deliveryPolicy === "final_only", "atomic final batch requires final_only");
+      requireCondition(!state.finalBatchSubmitted, "final batch already submitted");
+      requireCondition(Array.isArray(payload.candidates) && Array.isArray(payload.reviewedPaths), "invalid final batch");
+      requireText(payload.reason, "acceptance reason");
+      requireCondition(new Set(payload.reviewedPaths).size === payload.reviewedPaths.length, "duplicate reviewed paths");
+      for (const path of payload.reviewedPaths) requireCondition(Object.hasOwn(state.units, path), "unknown review unit");
+      for (const candidate of payload.candidates) {
+        assertCandidate(candidate, state.snapshot.id);
+        requireCondition(!Object.hasOwn(state.candidates, candidate.id), "duplicate candidate id");
+        Object.defineProperty(state.candidates, candidate.id, { value: { candidate: structuredClone(candidate), disposition: "accepted", reason: payload.reason }, enumerable: true, writable: true, configurable: true });
+      }
+      for (const path of payload.reviewedPaths) state.units[path] = "done";
+      state.finalBatchSubmitted = true;
+      break;
+    }
     case "candidates.submitted": {
       requireCondition(payload.channel === state.deliveryPolicy, "delivery channel disabled for this experiment");
       requireCondition(Array.isArray(payload.candidates), "candidate batch must be an array");
