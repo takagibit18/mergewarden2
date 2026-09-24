@@ -32,8 +32,8 @@ test('strict incoming neighbor -> newly read caller -> accepted exact evidence g
 test('source already read before Graph gets no Graph discovery credit',()=>{
  const f=fixture();f.read();f.lookup();f.neighbors();f.read();f.submit();const a=f.analyze();assert.equal(a.findings[0].discoveryPath,'text_only');assert.equal(a.findings[0].chains[0].novelToText,false);
 });
-test('prior text search discovery, including base revision, makes later Graph chain ambiguous',()=>{
- const f=fixture();f.call('search_text',{query:'callee',revision:'base'}, {...page([{path:'caller.py',line:3}]),revision:'base'});f.lookup();f.neighbors();f.read();f.submit();const a=f.analyze();assert.equal(a.findings[0].discoveryPath,'ambiguous');assert.equal(a.findings[0].chains[0].competingTextCallIds.length,1);
+test('prior text search discovery, including base revision, keeps later Graph reconfirmation text-only',()=>{
+ const f=fixture();f.call('search_text',{query:'callee',revision:'base'}, {...page([{path:'caller.py',line:3}]),revision:'base'});f.lookup();f.neighbors();f.read();f.submit();const a=f.analyze();assert.equal(a.findings[0].discoveryPath,'text_only');assert.equal(a.findings[0].chains[0].competingTextCallIds.length,1);
 });
 test('a pre-issued source call cannot be caused by a later Graph result',()=>{
  const f=fixture();f.lookup();const neighbor=f.issue('graph_neighbors',{symbolId:'callee',relation:'CALLS',direction:'incoming'});const read=f.issue('read_source',{path:'caller.py'});f.result(neighbor,'graph_neighbors',page([edge]));f.result(read,'read_source',source);f.submit();const a=f.analyze();assert.equal(a.findings[0].discoveryPath,'ambiguous');assert.equal(a.metrics.neighborsToReadSource.converted,0);
@@ -69,8 +69,8 @@ test('active branch only; malformed JSONL and orphan results are explicit integr
 test('model self-attribution and details never substitute for the model-visible trace',()=>{
  const f=fixture();f.append({role:'assistant',content:[{type:'text',text:'Graph found this bug.'},{type:'thinking',thinking:'graph assisted'}]});f.read();f.submit();assert.equal(f.analyze().findings[0].discoveryPath,'text_only');
 });
-test('failed or unanswered Graph navigation does not default to text-only discovery',()=>{
- const f=fixture();f.call('graph_lookup',{}, {...page([]),status:'error'});f.read();f.submit();assert.equal(f.analyze().findings[0].discoveryPath,'ambiguous');
+test('expected Graph errors allow text fallback; unanswered calls remain ambiguous',()=>{
+ const f=fixture();f.call('graph_lookup',{}, {...page([]),status:'error'});f.read();f.submit();assert.equal(f.analyze().findings[0].discoveryPath,'text_only');
  const g=fixture();g.issue('graph_lookup',{});g.read();g.submit();assert.equal(g.analyze().findings[0].discoveryPath,'ambiguous');
 });
 test('cross-arm novelty requires semantic mappings, keeps partial Text attempts and rejects title matching as an oracle',()=>{

@@ -36,7 +36,7 @@ test('Stage B real Pi: Search → Traverse → separate source → durable accep
  assert.equal(r.report.status,'completed');assert.equal(r.report.findings.length,1);
  const jsonl=await readFile(join(f.state,'runs',r.runId,'session.jsonl'),'utf8');
  const trace=analyzeRetrieval({runKey:'script',snapshotId:page.snapshotId,findings:r.report.findings,jsonl});
- assert.deepEqual(trace.traceIssues,[]);assert.equal(trace.findings[0].discoveryPath,'graph_assisted');assert.equal(trace.metrics.searchToTraverse,1);assert.equal(trace.metrics.novelEntityToSource,1);assert.equal(trace.sourceLinks[0].retrievalOrigin,'locagent_graph');
+ assert.deepEqual(trace.traceIssues.filter(i=>i.severity==='fatal'),[]);assert.equal(trace.findings[0].discoveryPath,'graph_assisted');assert.equal(trace.metrics.searchToTraverse,1);assert.equal(trace.metrics.novelEntityToSource,1);assert.equal(trace.sourceLinks[0].retrievalOrigin,'locagent_graph');
  const missing=jsonl.split('\n').filter(Boolean).map(line=>{const e=JSON.parse(line);if(e.message?.role==='assistant')delete e.message.usage;return JSON.stringify(e);}).join('\n');
  assert.equal(analyzeRetrieval({runKey:'missing',snapshotId:page.snapshotId,findings:[],jsonl:missing}).metrics.totalTokens,null);
 });

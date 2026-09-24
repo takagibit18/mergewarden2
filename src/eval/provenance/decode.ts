@@ -24,7 +24,7 @@ export function decodePiTrace(jsonl: string): DecodedTrace {
   const entries: ObjectValue[] = [];
   for (const [index, line] of jsonl.trim().split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
-    try { const entry: unknown = JSON.parse(line); if (!object(entry)) throw Error(); entries.push(entry); }
+    try { const entry: unknown = JSON.parse(line); if (!object(entry)) throw Error(); if (entry.type !== "session" && (typeof entry.type !== "string" || typeof entry.id !== "string" || !(entry.parentId === null || typeof entry.parentId === "string"))) throw Error(); entries.push(entry); }
     catch { trace.issues.push(issue("invalid_jsonl", `Invalid native JSONL at line ${index + 1}`)); }
   }
   const indexed = new Map<string, ObjectValue>();
