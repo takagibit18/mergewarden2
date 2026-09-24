@@ -90,7 +90,7 @@ if(action==='certify'){
   const result=await new ReviewEngine(createEvaluationRuntimeFactory(key,budget)).run({repositoryPath:c.repositoryPath,stateDir,input:{kind:'commits',base:c.base,head:c.head},model,timeoutMs:budget.timeoutMs,maxToolCalls:budget.maxTools,evaluation:{tools:'text+locagent',graphMode:'prepared_only',routing:variants[arm]}});
   row.runId=result.runId;if(result.kind!=='report'||result.report.snapshot.id!==c.snapshotId)throw Error('Snapshot drift');
   const manifest=JSON.parse(await readFile(join(stateDir,'runs',result.runId,'run.json'),'utf8')),jsonl=await readFile(join(stateDir,'runs',result.runId,'session.jsonl'),'utf8');
-  const trace=analyzeRetrieval({runKey:`${arg}/${arm}`,snapshotId:c.snapshotId,findings:result.report.findings,jsonl});
+  const trace=analyzeRetrieval({runKey:`${arg}/${arm}`,snapshotId:c.snapshotId,findings:result.report.findings,changedPaths:Object.keys(result.report.coverage),jsonl});
   const routingState=jsonl.trim().split('\n').map(JSON.parse).findLast(e=>e.customType==='mergewarden-structural-routing-v1')?.data;
   Object.assign(row,{status:result.report.status,manifest,trace,routingState,findings:result.report.findings,summary:result.report.summary});
   const g=manifest.metrics.graph;if(g.buildMs!==0||g.extractedFiles!==0||g.resolvedFiles!==0||(g.generationId&&g.generationId!==c.generationId))throw Error('Prepared-only violation');

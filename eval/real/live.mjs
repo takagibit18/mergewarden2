@@ -45,7 +45,7 @@ const runs=await executeBatch({output,plan,identity:experiment,resume:argv.inclu
   const violation=graph.buildMs!==0||graph.extractedFiles!==0||graph.resolvedFiles!==0||graph.resumedFiles!==0||graph.resumedResolutionFiles!==0||graph.coldRequestMs?.length>0||(graph.calls>0&&graph.warmRequestMs?.length<1)||(graph.generationId&&graph.generationId!==receipt.generationId);
   if(violation){const error=Error('Hot Graph experiment protocol violation');error.code='EXPERIMENT_PROTOCOL_VIOLATION';throw error;}
  }
- return {caseId:job.task.case_id,snapshotId:store.manifest.identity.id,runId:result.runId,status:result.report.status,delivered:true,findings:result.report.findings,report:result.report,manifest,graphPreparation:{generationId:receipt.generationId,generationState:receipt.generationState,scope:receipt.scope,budget:receipt.budget,coverage:receipt.coverage},trace:analyzeRetrieval({runKey:job.runKey,snapshotId:store.manifest.identity.id,findings:result.report.findings,jsonl})};
+ return {caseId:job.task.case_id,snapshotId:store.manifest.identity.id,runId:result.runId,status:result.report.status,delivered:true,findings:result.report.findings,report:result.report,manifest,graphPreparation:{generationId:receipt.generationId,generationState:receipt.generationState,scope:receipt.scope,budget:receipt.budget,coverage:receipt.coverage},trace:analyzeRetrieval({runKey:job.runKey,snapshotId:store.manifest.identity.id,findings:result.report.findings,changedPaths:Object.keys(result.report.coverage),jsonl})};
 }});
 await writeJson(join(output,'operations.json'),pilotStatistics(runs));
 console.log(JSON.stringify({output,kind:experiment.kind,runs:runs.length,completed:runs.filter(r=>r.status==='completed'&&r.delivered).length,qualityMeasured:false}));

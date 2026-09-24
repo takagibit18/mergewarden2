@@ -67,7 +67,7 @@ if(action==='prepare'){
   const result=await new ReviewEngine(runtimeFactory).run({repositoryPath:spec.repositoryPath,stateDir,input:{kind:'commits',base:spec.base,head:spec.head},model,timeoutMs:budget.timeoutMs,maxToolCalls:budget.maxTools,evaluation:{tools:'text+locagent',graphMode:'prepared_only',routing:group==='A'?'none':'pi_structural_v1'}});
   if(result.kind!=='report'||result.report.snapshot.id!==spec.snapshotId)throw Error('Snapshot drift');
   const manifest=JSON.parse(await readFile(join(stateDir,'runs',result.runId,'run.json'),'utf8'));const jsonl=await readFile(join(stateDir,'runs',result.runId,'session.jsonl'),'utf8');
-  const trace=analyzeRetrieval({runKey:`${caseId}/${group}`,snapshotId:spec.snapshotId,findings:result.report.findings,jsonl});
+  const trace=analyzeRetrieval({runKey:`${caseId}/${group}`,snapshotId:spec.snapshotId,findings:result.report.findings,changedPaths:Object.keys(result.report.coverage),jsonl});
   const g=manifest.metrics.graph;if(g.buildMs!==0||g.extractedFiles!==0||g.resolvedFiles!==0||(g.generationId&&g.generationId!==spec.generationId))throw Error('Prepared-only violation');
   const expected=protocol.prompts[group]+`\nCurrent working directory: ${stateDir.replaceAll('\\','/')}`;
   if(manifest.runtimeConfiguration.systemPrompt!==expected||manifest.runtimeConfiguration.modelMaxTokens!==budget.maxTokens||manifest.runtimeConfiguration.thinkingLevel!==budget.thinkingLevel)throw Error('Runtime configuration drift');
