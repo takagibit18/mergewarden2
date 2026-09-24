@@ -6,6 +6,8 @@
 
 P0 先通过 307 项完整验证与 34 条历史会话双次字节稳定重放，才开始 Registry。新增真实 Pi SDK 离线链路覆盖 ID、纠错、无自动证据、先文本后 Graph、partial positive、错误回退以及两种持久化故障。完整最终验证、历史差异和可选四例交付 smoke 见 [VALIDATION](VALIDATION.md)；此轮是工程契约验收，不是新的质量实验或 formal/reserve 运行。
 
+最终完整验证 328 passed / 0 failed / 0 skipped。四个 limited-live 名额中 3 个完成、1 个首工具前连接失败；完成运行的显式 Evidence ID 均无损进入报告，P2/P3 保持 text_only、P4 为 incoming-call assisted。P2 额外 unsupported claim 保留为语义风险，不影响工程契约与正确性标签的分离。未启动 reserve/formal。
+
 当前数据流见 [Current Runtime Contract](ARCHITECTURE.md#current-runtime-contract--2026-09-24)，精确定义见 [ADR 0015](adr/0015-evidence-attribution-contract.md) 和 [Attribution v3 protocol](../eval/attribution-v3.md)。
 
 ## 历史状态 · 2026-09-23
