@@ -7,6 +7,7 @@ import {ReviewEngine} from '../../../src/engine/review.ts';
 import {SnapshotStore} from '../../../src/snapshot/store.ts';
 import {SqliteCodeGraph} from '../../../src/graph/sqlite-store.ts';
 import {repositoryFixture} from '../../../tests/repository-fixture.mjs';
+import {analyzeDispatch} from '../../../src/eval/provenance/dispatch.ts';
 import {decodePiTrace} from '../../../src/eval/provenance/decode.ts';
 const model={provider:'bigmodel',modelId:'glm-5.3-flash'};
 const strings=x=>typeof x==='string'?[x]:Array.isArray(x)?x.flatMap(strings):x&&typeof x==='object'?Object.values(x).flatMap(strings):[];
@@ -71,6 +72,14 @@ async function run(t,mode){
  if(mode==='oversize'){assert.equal(packages(requests[1])[0].sources.length,0);return;}
  assert.deepEqual(result.report.findings[0].evidence.map(e=>e.path),mode==='omit'?['app.py']:['app.py','caller.py']);
  assert.ok(result.report.findings[0].evidence.every(e=>e.contentSha256));
+ const analysis=analyzeDispatch({runId:result.runId,runKey:mode,snapshotId:store.manifest.identity.id,findings:result.report.findings,jsonl});
+ assert.equal(analysis.host_dispatched_structural_assistance,mode==='omit'?0:1);assert.equal(analysis.model_selected_graph_assistance,0);
+ if(mode==='normal'){
+  const removed=rows.filter(r=>!(r.type==='custom_message'&&r.customType==='mergewarden-structural-context-v1'));
+  const absent=analyzeDispatch({runId:result.runId,runKey:mode,snapshotId:store.manifest.identity.id,findings:result.report.findings,jsonl:removed.map(JSON.stringify).join('\n')});assert.equal(absent.host_dispatched_structural_assistance,0);
+  const corrupt=structuredClone(rows);const message=corrupt.find(r=>r.type==='custom_message'&&r.customType==='mergewarden-structural-context-v1');message.content=message.content.replace('return work(1)','return work(2)');
+  assert.equal(analyzeDispatch({runId:result.runId,runKey:mode,snapshotId:store.manifest.identity.id,findings:result.report.findings,jsonl:corrupt.map(JSON.stringify).join('\n')}).host_dispatched_structural_assistance,0);
+ }
  if(mode==='early-batch')assert.equal(trace.calls.filter(c=>c.name==='submit_review').length,2);
 }
 for(const mode of ['normal','early-batch','no-trigger','advisory','omit','oversize','budget','cancel','host-persistence','final-persistence'])test('dispatch real Pi HTTP + Engine + prepared graph: '+mode,t=>run(t,mode));
