@@ -87,6 +87,16 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       const exhausted = !route || route.structuralCalls >= limits.maxStructuralCallsPerEpisode || data.metrics.structuralAttempts >= limits.maxStructuralCallsTotal;
       if (exhausted) {
         if (route) suppress(route, "budget_exhausted");
+        else {
+          // Keep the terminal resolution intact. This observation is private
+          // telemetry only: it neither reopens the episode nor adds guidance.
+          const resolved = data.routes.findLast(r => r.activationOrdinal !== undefined);
+          const reason = resolved?.state === "VERIFIED" ? "same_route_already_attempted" : resolved?.state === "DEGRADED" ? "navigation_degraded" : undefined;
+          if (resolved && reason && resolved.suppressionReason !== reason) {
+            data.metrics.suppressed++; data.metrics.reasons[reason] = (data.metrics.reasons[reason] ?? 0) + 1;
+            resolved.suppressionReason = reason; data.state = "SUPPRESSED"; persist(resolved);
+          }
+        }
         context.onBlockedCall(event.toolName);
         return { block: true, reason: "Structural investigation budget reached; continue with immutable text/source tools." };
       }

@@ -147,6 +147,16 @@ test('repository query identifiers cannot collide with object prototype keys',()
  const h=hooks();for(const query of ['constructor','__proto__','toString'])h.result('search_text',{revision:'head',items:[]},{query});
  assert.equal(h.routing.metrics().activated,1);
 });
+test('terminal route rejection is recorded once without changing verification or model-visible block result',()=>{
+ const h=hooks();h.result('read_diff',{path:'app.py',offset:0,totalLines:2,lines:['-def foo(a):','+def foo(a,b):']});
+ h.result('search_entity',{revision:'head',items:[{entityId:'x',path:'caller.py',startLine:1,endLine:3}]});
+ h.result('read_source',{revision:'head',path:'caller.py',startLine:1,endLine:3});
+ const before=h.routing.metrics().structuralAttempts;
+ for(let i=0;i<2;i++)assert.deepEqual(h.handlers.tool_call({toolName:'traverse_graph'}),{block:true,reason:'Structural investigation budget reached; continue with immutable text/source tools.'});
+ assert.equal(h.routing.metrics().verified,1);assert.equal(h.routing.metrics().structuralAttempts,before);
+ assert.equal(h.routing.metrics().suppressed,1);assert.equal(h.routing.metrics().reasons.same_route_already_attempted,1);
+ const restored=hooks('s',h.saved);assert.equal(restored.routing.metrics().verified,1);assert.equal(restored.saved.at(-1).data.routes[0].state,'VERIFIED');
+});
 test('two episodes share six-call total budget across restore, then suppress distinct third cue',()=>{
  const h=hooks();
  const cue=(h,name)=>h.result('read_diff',{path:'app.py',offset:0,totalLines:2,lines:[`-def ${name}(a):`,`+def ${name}(a,b):`]});

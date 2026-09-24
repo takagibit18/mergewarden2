@@ -28,6 +28,8 @@ Every transition and observation is checkpointed using `mergewarden-structural-r
 
 Independent metrics distinguish triggered signals, activated episodes, structural attempts, verified routes, degradation, suppression, reasons, and first activation ordinal. Existing navigation/Graph/trace metrics remain. Native trace decoding recognizes the separate routing guidance block but parses only original JSON data; strict graph-assisted evidence attribution is unchanged.
 
+Additional requests after VERIFIED or DEGRADED retain that terminal resolution and record one private suppression reason per episode. The generic structural block response remains unchanged. Graph request counts from native traces include blocked calls; actual executed queries are reported separately by the engine's graphToolCalls metric.
+
 ## Validation and development protocol
 
 Pure signal tests, actual Pi + intercepted HTTP provider requests, six positive/negative end-to-end fixtures, pagination, restore, allowlist, source range, prepared-only, budget accounting, cancellation, and existing evidence tests precede `npm run verify` (zero failed/skipped).
