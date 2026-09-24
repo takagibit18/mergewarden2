@@ -49,7 +49,9 @@ export class ReviewEngine {
     requireCondition(Number.isInteger(maxTools) && maxTools > 0 && maxTools <= 1000, "Tool limit must be 1..1000");
     requireText(options.model.provider, "provider"); requireText(options.model.modelId, "model");
     const routingEnabled = options.evaluation?.routing !== undefined && options.evaluation.routing !== "none";
-    requireCondition(!routingEnabled || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
+    const routingTextOnly = options.evaluation?.routingTextOnly === true;
+    requireCondition(!routingTextOnly || (routingEnabled && options.evaluation?.tools === "text-only"), "Routing text ablation requires routing and text-only tools");
+    requireCondition(!routingEnabled || routingTextOnly || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
     const abort = new AbortController(); let timedOut = false; let budgetExceeded = false;
     const cancel = () => abort.abort(new Error("Review cancelled"));
     options.signal?.addEventListener("abort", cancel, { once: true }); if (options.signal?.aborted) cancel();
@@ -190,7 +192,7 @@ export class ReviewEngine {
         try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { ...(routingTextOnly ? { textOnly: true } : {}), variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);

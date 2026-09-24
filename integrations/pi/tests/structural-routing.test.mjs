@@ -16,7 +16,7 @@ const call=(name,args)=>({name,args});
 const search=()=>call('search_text',{revision:'head',query:'not_present'});
 const source=(path)=>call('read_source',{revision:'head',path,startLine:1,endLine:20});
 
-async function run(t,{initial,changed,path='app.py',steps=[],budget,prepare=true,signal,onRequest,routing='pi_structural_v1',maxTools=40}) {
+async function run(t,{initial,changed,path='app.py',steps=[],budget,prepare=true,signal,onRequest,routing='pi_structural_v1',maxTools=40,textOnly=false}) {
  const f=await repositoryFixture(t,initial); await f.write(path,changed); const head=await f.commit();
  const store=await SnapshotStore.freeze({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},configuration:{...model,policy:'final_only',promptVersion:1}});
  if(prepare){const opened=await SqliteCodeGraph.open(store);opened.graph.close();}
@@ -29,7 +29,7 @@ async function run(t,{initial,changed,path='app.py',steps=[],budget,prepare=true
  };
  t.after(()=>{globalThis.fetch=prior;});
  const catalog=await createModelRuntime(model.provider,'offline-key');
- const result=await new ReviewEngine(options=>createPiRuntime(options,catalog)).run({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model,signal,maxToolCalls:maxTools,evaluation:{tools:'text+locagent',graphMode:'prepared_only',routing,routingBudget:budget}});
+ const result=await new ReviewEngine(options=>createPiRuntime(options,catalog)).run({repositoryPath:f.repository,stateDir:f.state,input:{kind:'commits',base:f.base,head},model,signal,maxToolCalls:maxTools,evaluation:{tools:textOnly?'text-only':'text+locagent',graphMode:'prepared_only',routing,routingBudget:budget,...(textOnly?{routingTextOnly:true}:{})}});
  const manifest=JSON.parse(await readFile(join(f.state,'runs',result.runId,'run.json'),'utf8'));
  const rows=(await readFile(join(f.state,'runs',result.runId,'session.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
  assert.equal(manifest.metrics.graph.buildMs,0);assert.equal(manifest.metrics.graph.extractedFiles,0);assert.equal(manifest.metrics.graph.resolvedFiles,0);
@@ -212,4 +212,20 @@ test('C can verify another pending Graph source after first route verification w
  const h=chooks();activate(h);h.result('traverse_graph',{revision:'head',items:[{entityId:'x',path:'caller.py',startLine:2,endLine:4,depth:1},{entityId:'y',path:'second.py',startLine:1,endLine:3,depth:1}]});
  assert.match(JSON.stringify(readCaller(h)),/Impact synthesis checkpoint/);
  assert.match(JSON.stringify(h.result('read_source',{revision:'head',path:'second.py',startLine:1,endLine:3})),/Impact synthesis checkpoint/);
+});
+
+
+test('B/C capability ablation gives identical native investigation guidance with only C exposing Graph',async t=>{
+ const b=await run(t,{...signature,textOnly:true,routing:'pi_structural_v2_investigate',steps:[diff(),search(),source('caller.py'),submit()]});
+ const c=await run(t,{...signature,routing:'pi_structural_v2_investigate',steps:[diff(),search(),source('caller.py'),submit()]});
+ assert.equal(b.result.report.status,'completed');assert.equal(c.result.report.status,'completed');
+ assert.equal(b.manifest.metrics.routing.activated,1);assert.equal(c.manifest.metrics.routing.activated,1);
+ assert.equal(b.manifest.toolExposure,'text-only');assert.equal(b.manifest.metrics.graphToolCalls,0);
+ assert.ok(b.requests.every(r=>JSON.stringify(r.tools.map(t=>t.function.name).sort())===JSON.stringify([...TEXT_TOOLS].sort())));
+ assert.ok(c.requests[1].tools.some(t=>t.function.name==='traverse_graph'));
+ const notices=r=>r.rows.filter(x=>x.message?.role==='toolResult').flatMap(x=>x.message.content).flatMap(x=>{try{return JSON.parse(x.text)._mergewarden?.notices??[];}catch{return [];}});
+ assert.deepEqual(notices(b),notices(c));assert.match(notices(b)[0].text,/incoming CALLS/);
+ // Pi adds each isolated state cwd; compare the identical review policy before that suffix.
+ assert.equal(b.requests[0].messages[0].content.split('\nCurrent working directory:')[0],c.requests[0].messages[0].content.split('\nCurrent working directory:')[0]);
+ assert.deepEqual(b.requests[0].tools,c.requests[0].tools);
 });

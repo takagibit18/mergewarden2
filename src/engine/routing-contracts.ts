@@ -10,6 +10,8 @@ export interface RoutingMetrics {
 }
 export interface RoutingContext {
   variant?: Exclude<RoutingMode, "none">;
+  /** Internal capability ablation: identical guidance, no structural tool exposure. */
+  textOnly?: boolean;
   snapshotId: string; changedPaths: string[]; budget?: Partial<RoutingBudget>;
   /** Hook rejections still pass through the engine's admission/accounting boundary. */
   onBlockedCall(name: string): void;

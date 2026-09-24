@@ -20,7 +20,7 @@ interface Route extends StructuralSignal {
   candidates: Candidate[]; suppressionReason?: string;
 }
 interface Checkpoint {
-  variant?: RoutingContext["variant"]; observation: StructuralObservation;
+  textOnly?: boolean; variant?: RoutingContext["variant"]; observation: StructuralObservation;
   version: typeof ROUTING_VERSION; snapshotId: string; state: State; ordinal: number; enabled: boolean;
   routes: Route[]; seenPaths: string[]; textVerified: string[]; searches: number;
   searchPaths: Record<string, string[]>; pages: Record<string, { total: number; lines: Record<number, string> }>;
@@ -39,7 +39,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
   for (const key of ["maxRouteEpisodes", "maxStructuralCallsPerEpisode", "maxStructuralCallsTotal"] as const) {
     if (!Number.isInteger(limits[key]) || limits[key] < 1 || limits[key] > ROUTING_THRESHOLDS[key]) throw Error(`Invalid routing budget: ${key}`);
   }
-  const fresh = (): Checkpoint => ({ variant: context.variant ?? "pi_structural_v1", observation: freshObservation(context.changedPaths), version: ROUTING_VERSION, snapshotId: context.snapshotId, state: "IDLE", ordinal: 0, enabled: false, routes: [], seenPaths: [...context.changedPaths], textVerified: [], searches: 0, searchPaths: {}, pages: {}, weakSignals: [],
+  const fresh = (): Checkpoint => ({ ...(context.textOnly ? { textOnly: true } : {}), variant: context.variant ?? "pi_structural_v1", observation: freshObservation(context.changedPaths), version: ROUTING_VERSION, snapshotId: context.snapshotId, state: "IDLE", ordinal: 0, enabled: false, routes: [], seenPaths: [...context.changedPaths], textVerified: [], searches: 0, searchPaths: {}, pages: {}, weakSignals: [],
     metrics: { version: ROUTING_VERSION, triggered: 0, activated: 0, structuralAttempts: 0, verified: 0, degraded: 0, suppressed: 0, reasons: {} } });
   let data = fresh();
   const extension: ExtensionFactory = pi => {
@@ -64,7 +64,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       const priorPaths = Object.hasOwn(data.searchPaths, signal.targetHint) ? data.searchPaths[signal.targetHint]! : [];
       const relevantText = signal.routeType === "STRUCTURAL_ESCALATION" ? data.textVerified.length > 0 : priorPaths.some(p => data.textVerified.includes(p));
       if (relevantText) { suppress(route, "text_verified"); return; }
-      if (!STRUCTURAL_TOOLS.every(t => allowed.has(t) && pi.getAllTools().some(x => x.name === t))) { suppress(route, "structural_tools_unavailable"); return; }
+      if (!context.textOnly && !STRUCTURAL_TOOLS.every(t => allowed.has(t) && pi.getAllTools().some(x => x.name === t))) { suppress(route, "structural_tools_unavailable"); return; }
       if (data.routes.some(r => r.state === "DEGRADED")) { suppress(route, "navigation_degraded"); return; }
       if (data.metrics.activated >= limits.maxRouteEpisodes || data.metrics.structuralAttempts >= limits.maxStructuralCallsTotal) { suppress(route, "budget_exhausted"); return; }
       // Episodes remain attributable: defer concurrent signals rather than charging arbitrary routes.
@@ -72,7 +72,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       route.activationOrdinal = data.ordinal; data.metrics.activated++;
       data.metrics.firstActivationToolOrdinal ??= data.ordinal;
       if (!data.enabled) {
-        pi.setActiveTools([...new Set([...pi.getActiveTools(), ...STRUCTURAL_TOOLS])].filter(t => allowed.has(t)));
+        pi.setActiveTools([...new Set([...pi.getActiveTools(), ...(context.textOnly ? [] : STRUCTURAL_TOOLS)])].filter(t => allowed.has(t)));
         data.enabled = true;
       }
       transition(route, "RECOMMENDED"); return !context.variant || context.variant === "pi_structural_v1" ? guidance(signal) : investigationGuidance(signal);
@@ -82,10 +82,10 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       for (const entry of ctx.sessionManager.getBranch()) {
         if (entry.type !== "custom" || entry.customType !== ROUTING_ENTRY) continue;
         const saved = entry.data as Checkpoint | undefined;
-        if (saved?.version === ROUTING_VERSION && saved.snapshotId === context.snapshotId && (saved.variant ?? "pi_structural_v1") === (context.variant ?? "pi_structural_v1")) data = structuredClone(saved);
+        if (saved?.version === ROUTING_VERSION && saved.snapshotId === context.snapshotId && !!saved.textOnly === !!context.textOnly && (saved.variant ?? "pi_structural_v1") === (context.variant ?? "pi_structural_v1")) data = structuredClone(saved);
       }
       data.observation ??= freshObservation(context.changedPaths);
-      pi.setActiveTools([...TEXT_TOOLS, ...(data.enabled ? STRUCTURAL_TOOLS : [])].filter(t => allowed.has(t)));
+      pi.setActiveTools([...TEXT_TOOLS, ...(data.enabled && !context.textOnly ? STRUCTURAL_TOOLS : [])].filter(t => allowed.has(t)));
       persist();
     });
     pi.on("tool_call", event => {
