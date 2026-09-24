@@ -32,6 +32,7 @@ export interface RunManifest {
     /** Executed is kept as toolCalls for backwards-compatible experiment summaries. */
     toolCalls: number; toolRequests: number; toolAccepted: number; toolExecuted: number; toolRejected: number;
     graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"];
+    dispatch?: import("./dispatch-service.ts").StructuralDispatch["metrics"] & { operations: { requested: number; accepted: number; executed: number; rejected: number }; graphBackendRequests: number };
     navigation: { attempted: boolean; degraded: boolean; errors: number };
     routing?: import("./routing-contracts.ts").RoutingMetrics;
   };
