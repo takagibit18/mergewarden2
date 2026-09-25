@@ -1,5 +1,5 @@
 import type { RelationFact, SymbolFact } from '../../graph/contracts.ts';
-import type { GraphData, RetrievalConfig, SearchInput, TraverseInput } from './contracts.ts';
+import type { ExplorationBudget, GraphData, RetrievalConfig, SearchInput, TraverseInput } from './contracts.ts';
 import { SparseIndex, fuzzyScore } from './sparse.ts';
 const order = (a:string,b:string)=>a<b?-1:a>b?1:0;
 const size = (v:unknown)=>Buffer.byteLength(JSON.stringify(v));
@@ -160,7 +160,7 @@ export class LocAgentRetrieval {
     if(truncated)result.warnings.push('Bounded candidate output; refine the query to retrieve omitted entities.');
     return measured(result);
   }
-  traverse(input:TraverseInput){
+  private prepareTraversal(input:TraverseInput){
     requireThat(this.config.traverseEnabled!==false,'traverse_graph disabled by eval configuration');
     requireThat(Array.isArray(input.startEntities)&&input.startEntities.length>=1&&input.startEntities.length<=5&&input.startEntities.every(s=>typeof s==='string'&&s.length>0&&s.length<=512),'Expected 1..5 bounded start entities');
     requireThat(['upstream','downstream','both'].includes(input.direction),'Invalid direction');
@@ -173,49 +173,75 @@ export class LocAgentRetrieval {
     const roots:SymbolFact[]=[],hints:{query:string;matchMode:string;candidates:ReturnType<typeof metadata>[]}[]=[];
     for(const id of input.startEntities){const found=this.exact(id);if(found.length===1)roots.push(found[0]!);else hints.push({query:id,matchMode:'bm25_entity',candidates:this.entities.search(id,10).slice(0,5).map(r=>metadata(this.symbols[r.index]!))});}
     requireThat(new Set(roots.map(r=>r.id)).size<=input.maxNodes,'maxNodes is smaller than the root set');
+    return {roots,hints,maxBytes,maxHops};
+  }
+  /** Bounded DFS in historical entity/relation/direction order. No rendering or byte checks. */
+  walkGraph(input:TraverseInput, budget:ExplorationBudget={maxVisitedNodes:input.maxNodes,maxVisitedEdges:100_000,maxExpandedStates:10_000}, signal?:AbortSignal){
+    const prepared=this.prepareTraversal(input),{roots,maxHops}=prepared;
+    for(const [key,value] of Object.entries(budget))requireThat(Number.isSafeInteger(value)&&value>=1,'Invalid exploration budget: '+key);
+    requireThat(budget.maxVisitedNodes>=new Set(roots.map(s=>s.id)).size,'Exploration budget is smaller than root set');
+    const discoveries:{entity:SymbolFact;depth:number;rootEntityId:string;direction:string;via?:RelationFact;parentStateId?:number;stateId:number;show:boolean}[]=[];
+    const nodeIds=new Set<string>();let visitedEdges=0,expandedStates=0,stopped=false;
+    let stopReason='exhausted';
+    const stop=(reason:string)=>{stopReason=reason;stopped=true;};
+    for(const root of roots){
+      const bestDepth=new Map<string,number>(),structuralEdges=new Set<string>();
+      const visit=(s:SymbolFact,depth:number,direction:string,via?:RelationFact,parentStateId?:number)=>{
+        signal?.throwIfAborted();if(stopped)return;
+        const state=`${s.id}:${input.direction==='both'?'both':direction}`,previous=bestDepth.get(state),improves=previous===undefined||depth<previous;
+        const structuralKey=via?JSON.stringify([via.fromId,via.relation,via.toId]):undefined,show=!structuralKey||!structuralEdges.has(structuralKey);
+        if(!show&&!improves)return;
+        if(!nodeIds.has(s.id)&&nodeIds.size>=budget.maxVisitedNodes){stopReason='visited_nodes';return;}
+        if(expandedStates>=budget.maxExpandedStates){stop('expanded_states');return;}
+        expandedStates++;nodeIds.add(s.id);if(improves)bestDepth.set(state,depth);if(structuralKey&&show)structuralEdges.add(structuralKey);
+        const stateId=discoveries.length;discoveries.push({entity:s,depth,rootEntityId:root.id,direction,...(via?{via}:{}),...(parentStateId===undefined?{}:{parentStateId}),stateId,show});
+        if(depth>=maxHops||!improves)return;
+        const dirs=input.direction==='both'?['downstream','upstream']:[direction];
+        for(const dir of dirs){
+          for(const edge of (dir==='upstream'?this.incomingByEntity:this.outgoingByEntity).get(s.id)??[]){
+            signal?.throwIfAborted();if(stopped)return;
+            if(visitedEdges>=budget.maxVisitedEdges){stop('visited_edges');return;}visitedEdges++;
+            const next=this.byId.get(dir==='upstream'?edge.fromId:edge.toId);if(!next)continue;
+            if(input.relationTypeFilter.length&&!input.relationTypeFilter.includes(edge.relation)||input.entityTypeFilter.length&&!input.entityTypeFilter.includes(next.kind))continue;
+            visit(next,depth+1,dir,edge,stateId);
+          }
+        }
+      };
+      visit(root,0,input.direction);
+    }
+    return {...prepared,discoveries,visitedNodes:nodeIds.size,visitedEdges,expandedStates,stopReason,
+      coverageLimited:this.envelope().status!=='ok'||stopReason!=='exhausted'};
+  }
+  private renderTraversal(input:TraverseInput,search:ReturnType<LocAgentRetrieval['walkGraph']>,compact=false){
+    const {maxHops,maxBytes,roots}=search,hints=structuredClone(search.hints);
     const items:Record<string,unknown>[]=[],edges:RelationFact[]=[],lines:string[]=[],nodeIds=new Set<string>(),edgeIds=new Set<string>();
-    const result={...this.envelope(),items,edges,tree:'',hints,truncated:false,maxHops,direction:input.direction,resultCount:0,returnedEdges:0,responseBytes:0};
+    const result={...this.envelope(),items,edges,...(compact?{}:{tree:''}),hints,truncated:search.stopReason!=='exhausted',maxHops,direction:input.direction,resultCount:0,returnedEdges:0,responseBytes:0,
+      ...(compact?{searchMetrics:{visitedNodes:search.visitedNodes,visitedEdges:search.visitedEdges,expandedStates:search.expandedStates,stopReason:search.stopReason,coverageLimited:search.coverageLimited},renderStopReason:'exhausted'}:{})};
     if(hints.length)result.warnings.push('Invalid start entities were not traversed. BM25 hints identify candidates only; retry with an exact returned entity ID. Empty output does not establish absence.');
     while(size(result)>maxBytes-512&&hints.some(h=>h.candidates.length)){hints.findLast(h=>h.candidates.length)!.candidates.pop();result.truncated=true;}
     while(size(result)>maxBytes-512&&hints.length){hints.pop();result.truncated=true;}
     let omittedDiagnostics=false;
     while(size(result)>maxBytes-512&&result.warnings.length>1){result.warnings.shift();result.truncated=true;omittedDiagnostics=true;}
     if(omittedDiagnostics)result.warnings.unshift('Some diagnostic details were omitted to respect maxBytes; inspect coverage.');
-    const incoming=this.incomingByEntity,outgoing=this.outgoingByEntity;
-    const fits=()=>size({...result,tree:lines.join('\n')})<=maxBytes-512;
-    let stopped=false;
-    for(const root of roots){
-      const bestDepth=new Map<string,number>(),structuralEdges=new Set<string>();
-      const visit=(s:SymbolFact,prefix:string,depth:number,direction:string,via?:RelationFact,pathResolved=true)=>{
-        if(stopped)return;
-        const state=`${s.id}:${input.direction==='both'?'both':direction}`;const previous=bestDepth.get(state),improves=previous===undefined||depth<previous;if(improves)bestDepth.set(state,depth);
-        const structuralKey=via?JSON.stringify([via.fromId,via.relation,via.toId]):undefined,show=!structuralKey||!structuralEdges.has(structuralKey);if(structuralKey&&show)structuralEdges.add(structuralKey);
-        if(!show&&!improves)return;
-        const fresh=!nodeIds.has(s.id);
-        if(fresh&&nodeIds.size>=input.maxNodes){result.truncated=true;return;}
-        const line=depth===0?`${entityName(s)} [${s.kind}; id=${s.id}]`:`${prefix}└── ${via!.relation}${direction==='upstream'?'-by ←':' →'} [${via!.resolution}] ${entityName(s)} [${s.kind}; id=${s.id}]`;
-        if(fresh){nodeIds.add(s.id);items.push({...metadata(s),depth,rootEntityId:root.id,...(via?{discoveredVia:{edgeId:via.id,relation:via.relation,direction,resolution:via.resolution,pathResolved}}:{})});}
-        let newEdge=false;if(show&&via&&!edgeIds.has(via.id)){edges.push(via);edgeIds.add(via.id);newEdge=true;}
-        if(show)lines.push(line);
-        if(edges.length>200||!fits()){
-          if(show)lines.pop();if(fresh){nodeIds.delete(s.id);items.pop();}if(newEdge){edges.pop();edgeIds.delete(via!.id);}result.truncated=true;stopped=true;return;
-        }
-        if(depth>=maxHops||!improves)return;
-        const dirs=input.direction==='both'?['downstream','upstream']:[direction];
-        for(const dir of dirs){
-          const neighbors=(dir==='upstream'?incoming:outgoing).get(s.id)??[];
-          for(const edge of neighbors){
-            const next=this.byId.get(dir==='upstream'?edge.fromId:edge.toId);if(!next)continue;
-            if(input.relationTypeFilter.length&&!input.relationTypeFilter.includes(edge.relation)||input.entityTypeFilter.length&&!input.entityTypeFilter.includes(next.kind))continue;
-            visit(next,prefix+'    ',depth+1,dir,edge,pathResolved&&['resolved_scoped','resolved_import_alias'].includes(edge.resolution));
-          }
-        }
-      };
-      visit(root,'',0,input.direction);
+    for(const d of search.discoveries){
+      const s=d.entity,via=d.via,fresh=!nodeIds.has(s.id);
+      if(fresh&&nodeIds.size>=input.maxNodes){result.truncated=true;if(compact)result.renderStopReason='max_nodes';break;}
+      if(fresh){nodeIds.add(s.id);items.push({...metadata(s),depth:d.depth,rootEntityId:d.rootEntityId,...(via?{discoveredVia:{edgeId:via.id,relation:via.relation,direction:d.direction,resolution:via.resolution,pathResolved:true}}:{})});}
+      const newEdge=d.show&&via&&!edgeIds.has(via.id);if(newEdge){edges.push(via);edgeIds.add(via.id);}
+      if(d.show&&!compact)lines.push(d.depth===0?`${entityName(s)} [${s.kind}; id=${s.id}]`:`${'    '.repeat(d.depth)}└── ${via!.relation}${d.direction==='upstream'?'-by ←':' →'} [${via!.resolution}] ${entityName(s)} [${s.kind}; id=${s.id}]`);
+      if(edges.length>200||size({...result,...(compact?{}:{tree:lines.join('\n')})})>maxBytes-512){
+        if(d.show&&!compact)lines.pop();if(fresh){nodeIds.delete(s.id);items.pop();}if(newEdge){edges.pop();edgeIds.delete(via!.id);}result.truncated=true;if(compact)result.renderStopReason=edges.length>=200?'max_edges':'max_bytes';break;
+      }
     }
-    result.tree=lines.join('\n');result.resultCount=items.length;result.returnedEdges=edges.length;
+    if(!compact)result.tree=lines.join('\n');result.resultCount=items.length;result.returnedEdges=edges.length;
     if(result.truncated)result.warnings.push('Traversal output bound reached; query a narrower root/filter/depth. Omitted nodes do not establish absence.');
     if(!items.length&&roots.length)throw Error('Even one entity exceeds the requested output bound');
-    return measured(result);
+    measured(result);requireThat(size(result)<=maxBytes,'Traversal envelope exceeds requested output bound');
+    return result;
+  }
+  traverse(input:TraverseInput){return this.renderTraversal(input,this.walkGraph(input));}
+  /** Host-only consumer; exploration caps do not depend on the delivery byte limit. */
+  hostTraverse(input:TraverseInput,signal?:AbortSignal){
+    return this.renderTraversal(input,this.walkGraph(input,{maxVisitedNodes:input.maxNodes,maxVisitedEdges:200,maxExpandedStates:200},signal),true);
   }
 }

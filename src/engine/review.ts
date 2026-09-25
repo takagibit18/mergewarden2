@@ -183,7 +183,7 @@ export class ReviewEngine {
       }
       if (retrieval) tools.splice(3, 0, ...retrieval.definitions().map(t => tool(t.name, t.description, t.schema, async (input, origin) => {
         if (origin === "model") modelGraphCalls++; else hostGraphCalls++;
-        try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
+        try { const page = await retrieval!.query(origin === 'host_dispatch' && t.name === 'traverse_graph' ? 'host_traverse_graph' : t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
       if (dispatchEnabled) {
