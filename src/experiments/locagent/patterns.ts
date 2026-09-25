@@ -13,9 +13,10 @@ export const STRUCTURAL_PATTERNS:readonly TraversalPattern[]=Object.freeze([
 ]);
 export interface PatternDiscovery {entity:SymbolFact;depth:number;rootEntityId:string;direction:string;via?:RelationFact;parentStateId?:number;stateId:number;patternId:string;show:boolean}
 export interface ProgressiveObservation {
- decision:'REACHED'|'EXPANDED'|'INSPECTED'|'SKIPPED_PATTERN_MISMATCH'|'SKIPPED_DUPLICATE_STATE'|'BUDGET_STOP'|'FRONTIER_DROPPED';
+ decision:'REACHED'|'EXPANDED'|'INSPECTED'|'SKIPPED_PATTERN_MISMATCH'|'SKIPPED_DUPLICATE_STATE'|'BUDGET_STOP'|'FRONTIER_DROPPED'|'DEFERRED'|'RESUMED'|'EXHAUSTED';
  state:PatternDiscovery; stepIndex:number; direction:TraversalStep['direction']; inspectionOrdinal:number;
  neighborOrdinal?:number; edge?:RelationFact|undefined; neighborEntity?:SymbolFact|undefined;
+ schedulerRound?:number;
 }
 interface State {discovery:PatternDiscovery;edges:readonly RelationFact[];cursor:number}
 interface Lane {pattern:TraversalPattern;depth:number;current:State[];next:PatternDiscovery[];seen:Set<string>}
