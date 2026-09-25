@@ -8,7 +8,10 @@ const code=s=>s.replace(/'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\])*'|"(?:\\.
 export function lexicalSeeds(text,path,origin,priority=2){
   const clean=code(text),seeds=[];
   const add=(query,kind,index)=>seeds.push({query,priority:priority+(kind==='definition'?0:kind==='call'?1:2),kind,path,index,origin,production:production(path)});
-  for(const m of clean.matchAll(/\b(?:def|class)\s+([A-Za-z_]\w*)/g))add(m[1],'definition',m.index);
+  // A diff may begin inside a docstring. Do not let an unmatched closing quote
+  // consume subsequent visible declarations. These are lexical seeds, not AST facts.
+  const declarations=origin?.tool==='read_diff'?text:clean;
+  for(const m of declarations.matchAll(/^[ \t]*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)/gm))add(m[1],'definition',m.index);
   for(const m of clean.matchAll(/\b([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\(/g)){
     if(/(?:def|class)\s+$/.test(clean.slice(Math.max(0,m.index-8),m.index)))continue;
     if(['if','for','while','return','print','len','range','isinstance','issubclass','type','int','float','str','bool','list','dict','tuple','set','super'].includes(m[1]))continue;
