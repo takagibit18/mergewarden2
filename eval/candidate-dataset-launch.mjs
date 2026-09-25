@@ -1,4 +1,4 @@
-import {readdir,readFile} from 'node:fs/promises';
+import {readdir,readFile,realpath,mkdir} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
 import {execFileSync,spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -14,7 +14,8 @@ const privatePaths=[join(workspace,'output/realgolden40-closure/corpus-v1-final/
 await checkIdentities(await read(join(out,'frozen-inputs.json')));
 const implementation={commit:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),files,privatePaths,productRuntimeCommit:(await read(join(out,'protocol.json'))).runtimeCommit};
 await save(join(out,'implementation-freeze.json'),implementation);
-const allowed=[join(repo,'src'),join(repo,'integrations/pi/src'),join(repo,'integrations/pi/package.json'),join(repo,'node_modules'),join(repo,'package.json'),...modules,join(out,'protocol.json'),join(out,'universe.json'),join(out,'implementation-freeze.json')];
+await mkdir(join(out,'phase-a'),{recursive:true});
+const allowed=[join(repo,'src'),join(repo,'integrations/pi/src'),join(repo,'integrations/pi/package.json'),join(repo,'node_modules'),await realpath(join(repo,'node_modules')), ...files.map(f=>f.path),join(out,'phase-a'),join(out,'protocol.json'),join(out,'universe.json'),join(out,'implementation-freeze.json')];
 for(const p of plans)allowed.push(join(p.state,'snapshots',p.snapshotId+'.json'),join(p.state,'graphs'),join(p.state,'blobs'));
 const args=['--experimental-strip-types','--permission',...[...new Set(allowed)].map(p=>'--allow-fs-read='+p),'--allow-fs-write='+join(out,'phase-a'),join(repo,'eval/candidate-dataset-generate.mjs'),out];
 await save(join(out,'phase-a-access-policy.json'),{readAllowlist:[...new Set(allowed)],writeAllowlist:[join(out,'phase-a')],privatePaths,spawnAllowed:false,networkAllowed:false,modelRuntimeCreated:false});
