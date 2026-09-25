@@ -2,7 +2,7 @@ import {join,resolve} from 'node:path';import assert from 'node:assert/strict';
 import {SnapshotStore} from '../src/snapshot/store.ts';
 import {read,save,identity,hash,checkIdentities} from './candidate-dataset-context.mjs';
 import {graphData} from './frontier-data.mjs';import {textComparator} from './route-utility-text.mjs';import {graphComparator} from './route-utility-graph.mjs';
-const out=resolve(process.argv[2]),phase=join(out,'phase-a'),implementation=await read(join(out,'implementation-freeze.json'));
+const out=resolve(process.argv[2]),phase=join(out,'phase-a'),implementationName=process.argv[3]??'implementation-freeze.json';assert(/^implementation-freeze(?:-\d+)?\.json$/.test(implementationName));const implementation=await read(join(out,implementationName));
 assert(process.permission);for(const p of implementation.denied)assert.equal(process.permission.has('fs.read',p),false,'Private data accessible');assert.equal(process.permission.has('child'),false);
 await checkIdentities(implementation.files);const inputFreeze=await read(join(phase,'input-freeze.json'));await checkIdentities([...inputFreeze.files,inputFreeze.protocol]);
 const {plans}=await read(join(phase,'plans.json')),files=[],rows=[];
@@ -17,5 +17,5 @@ for(const p of plans){
 }
 await save(join(phase,'cost-proxy.json'),rows);files.push(await identity(join(phase,'cost-proxy.json')));
 await checkIdentities(implementation.files);await checkIdentities(inputFreeze.files);
-files.push(...inputFreeze.files,await identity(join(phase,'plans.json')),await identity(join(phase,'input-freeze.json')),inputFreeze.protocol,await identity(join(out,'implementation-freeze.json')));
+files.push(...inputFreeze.files,await identity(join(phase,'plans.json')),await identity(join(phase,'input-freeze.json')),inputFreeze.protocol,await identity(join(out,implementationName)));
 await save(join(phase,'counterfactual-freeze.json'),{identity:'graph-vs-text-route-utility-1',frozenAt:new Date().toISOString(),allCasesComplete:true,caseCount:plans.length,files,implementation,privateScoringRead:false,modelCalls:0});
