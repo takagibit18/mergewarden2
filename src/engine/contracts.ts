@@ -6,7 +6,7 @@ export interface ReviewOptions {
   repositoryPath: string; stateDir: string; input?: ReviewInput; rerunId?: string;
   model: ModelSelection; timeoutMs?: number; maxToolCalls?: number; signal?: AbortSignal;
   /** Internal ablation only; never exposed as a product mode. */
-  evaluation?: { tools: "text-only" | "text+graph" | "text+locagent"; graphMode?: "lazy" | "prepared_only"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig; routing?: import("./routing-contracts.ts").RoutingMode; routingBudget?: Partial<import("./routing-contracts.ts").RoutingBudget>; routingTextOnly?: boolean };
+  evaluation?: { executionStrategy?: import("./dispatch-contracts.ts").ExecutionStrategy; tools: "text-only" | "text+graph" | "text+locagent"; graphMode?: "lazy" | "prepared_only"; retrieval?: import("../experiments/locagent/contracts.ts").RetrievalConfig; routing?: import("./routing-contracts.ts").RoutingMode; routingBudget?: Partial<import("./routing-contracts.ts").RoutingBudget>; routingTextOnly?: boolean };
 }
 export interface RuntimeTool { name: string; description: string; schema: Record<string, unknown>; execute(input: unknown): Promise<unknown> }
 export interface ReviewRuntime {
@@ -32,6 +32,7 @@ export interface RunManifest {
     /** Executed is kept as toolCalls for backwards-compatible experiment summaries. */
     toolCalls: number; toolRequests: number; toolAccepted: number; toolExecuted: number; toolRejected: number;
     graphToolCalls: number; reviewLatencyMs: number; graph: import("../graph/lazy-graph.ts").LazyCodeGraph["metrics"];
+    dispatch?: import("./dispatch-service.ts").StructuralDispatch["metrics"] & { operations: { requested: number; accepted: number; executed: number; rejected: number }; graphBackendRequests: number; sourceReadOperations: number };
     navigation: { attempted: boolean; degraded: boolean; errors: number };
     routing?: import("./routing-contracts.ts").RoutingMetrics;
   };

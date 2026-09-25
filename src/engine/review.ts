@@ -1,3 +1,6 @@
+import { StructuralDispatch } from "./dispatch-service.ts";
+import { OperationGate } from "./operations.ts";
+import type { OperationOrigin } from "./operations.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -52,6 +55,9 @@ export class ReviewEngine {
     const routingTextOnly = options.evaluation?.routingTextOnly === true;
     requireCondition(!routingTextOnly || (routingEnabled && options.evaluation?.tools === "text-only"), "Routing text ablation requires routing and text-only tools");
     requireCondition(!routingEnabled || routingTextOnly || options.evaluation?.tools === "text+locagent", "Structural routing v1 requires G1 evaluation tools");
+    const dispatchEnabled = options.evaluation?.executionStrategy === "dispatch_v1";
+    requireCondition(!options.evaluation?.executionStrategy || ["advisory", "dispatch_v1"].includes(options.evaluation.executionStrategy), "Unknown execution strategy");
+    requireCondition(!dispatchEnabled || (routingEnabled && !routingTextOnly && options.evaluation?.graphMode === "prepared_only"), "dispatch_v1 requires routed G1 prepared_only evaluation");
     const abort = new AbortController(); let timedOut = false; let budgetExceeded = false;
     const cancel = () => abort.abort(new Error("Review cancelled"));
     options.signal?.addEventListener("abort", cancel, { once: true }); if (options.signal?.aborted) cancel();
@@ -94,51 +100,37 @@ export class ReviewEngine {
       const evidenceRegistry = new EvidenceRegistry(store.manifest.identity.id);
       const sourceKey = (e: { revision: string; path: string; startLine: number; endLine: number; contentSha256: string }) => JSON.stringify([e.revision, e.path, e.startLine, e.endLine, e.contentSha256]);
       let controller: ReviewController | undefined; let submitted = false; let finalSummary = "";
-      let toolRequests = 0; let toolAccepted = 0; let toolExecuted = 0; let toolRejected = 0;
-      let routingRejected = 0;
-      const onBlockedCall = (_name: string) => {
-        toolRequests++; toolRejected++;
-        if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) return;
-        if (toolAccepted + routingRejected >= maxTools) {
-          budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted"));
-        } else routingRejected++;
-      };
-      let toolQueue: Promise<unknown> = Promise.resolve();
+      const gate = new OperationGate({ limit: maxTools, signal: abort.signal,
+        available: () => acceptingTools && controller?.state?.status === "reviewing" && !submitted,
+        unavailableReason: () => submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools",
+        exhausted: () => { budgetExceeded = true; acceptingTools = false; abort.abort(new Error("Tool budget exhausted")); } });
+      const onBlockedCall = (_name: string) => gate.blockedModelCall();
       abort.signal.addEventListener("abort", stopAcceptingTools, { once: true });
       const readDiffLines = new Map<string, { total: number; seen: Set<number> }>();
-      const tool = (name: string, description: string, schema: Record<string, unknown>, execute: (input: Record<string, unknown>) => Promise<unknown>): RuntimeTool => ({ name, description, schema,
-        execute(input) {
-          toolRequests++;
-          if (!acceptingTools || abort.signal.aborted || controller?.state?.status !== "reviewing" || submitted) {
-            toolRejected++;
-            return Promise.reject(abort.signal.reason ?? new Error(submitted ? "Final batch already submitted; end the review" : "Run is not accepting tools"));
-          }
-          if (toolAccepted + routingRejected >= maxTools) {
-            toolRejected++; budgetExceeded = true; acceptingTools = false;
-            abort.abort(new Error("Tool budget exhausted"));
-            return Promise.reject(new Error("Tool budget exhausted"));
-          }
-          toolAccepted++;
-          const job = toolQueue.then(async () => {
-            abort.signal.throwIfAborted(); requireCondition(controller?.state?.status === "reviewing", "Run is not accepting tools");
-            requireCondition(!submitted, "Final batch already submitted; end the review");
-            toolExecuted++;
-            notify({ phase: "tool", runId, tool: name, toolCalls: toolExecuted });
-            try {
-              const result = await execute(args(input));
-              abort.signal.throwIfAborted();
-              return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
-            } catch (error) {
-              if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
-              throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
-            }
-          });
-          toolQueue = job.catch(() => undefined); return job;
-        } });
+      const operations = new Map<string, (input: Record<string, unknown>, origin: OperationOrigin) => Promise<unknown>>();
+      const executeOperation = (origin: OperationOrigin, name: string, input: unknown) => gate.run(origin, async () => {
+        const execute = operations.get(name); requireCondition(execute, "Operation outside review allowlist");
+        notify({ phase: "tool", runId, tool: name, toolCalls: gate.counts.model.executed });
+        try {
+          const result = await execute(args(input), origin);
+          return { snapshotId: store.manifest.identity.id, versions: { base: store.manifest.identity.baseVersion, head: store.manifest.identity.headVersion }, ...(result as Record<string, unknown>) };
+        } catch (error) {
+          if (error instanceof PersistenceFailure) { acceptingTools = false; abort.abort(error); throw error; }
+          throw new Error(JSON.stringify({ snapshotId: store.manifest.identity.id, status: "error", ...(name === "submit_review" ? { outcome: "PRE_ACCEPTANCE_ERROR" } : {}), tool: name, message: error instanceof Error ? error.message : "Tool failed" }));
+        }
+      });
+      const tool = (name: string, description: string, schema: Record<string, unknown>, execute: (input: Record<string, unknown>, origin: OperationOrigin) => Promise<unknown>): RuntimeTool => {
+        operations.set(name, execute);
+        return { name, description, schema, execute: input => executeOperation("model", name, input) };
+      };
+      let dispatch: StructuralDispatch | undefined;
+      let modelGraphCalls = 0, hostGraphCalls = 0, hostSourceReadOperations = 0;
       const tools = [
-        tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async input => {
+        tool("read_source", "Read 1–200 lines of immutable base/head source. If a final finding depends on this source, select its returned _mergewarden.evidenceRefId (preferred) or full exact evidence reference. Do not include it otherwise.", object({ revision, path: string, startLine: integer, endLine: integer }, ["revision", "path", "startLine", "endLine"]), async (input, origin) => {
+          if (origin === "host_dispatch") hostSourceReadOperations++;
           const page = await store.source(rev(input.revision), text(input.path), number(input.startLine, 1), number(input.endLine, 200));
           if (page.status !== "ok" || page.endLine < page.startLine) return page;
+          if (origin === "host_dispatch") return page;
           sourceReads.add(sourceKey(page));
           return { ...page, _mergewarden: { schemaVersion: 1, evidenceRefId: evidenceRegistry.register(page) } };
         }),
@@ -153,6 +145,7 @@ export class ReviewEngine {
         }),
         tool("search_text", "Literal search of immutable source. Truncated results do not establish absence elsewhere.", object({ revision, query: string, limit: { type: "integer", minimum: 1, maximum: 100 } }, ["revision", "query"]), async input => store.search(rev(input.revision), text(input.query), number(input.limit, 50))),
         tool("submit_review", "Submit the final mature advisory findings after investigation. reviewedPaths contains only fully read changed paths. A finding may explicitly select changed and untouched source evidence using {evidenceRefId} from read_source (preferred) or full EvidenceRefs. Include only evidence the finding depends on. Never submit hypotheses as findings.", object({ summary: string, reviewedPaths: { type: "array", items: string, maxItems: 200, uniqueItems: true }, findings: { type: "array", items: finding, maxItems: 100 } }, ["summary", "reviewedPaths", "findings"]), async input => {
+          requireCondition(!dispatch?.hasPending(), "CONTEXT_PENDING: New host context has not entered a model request. Read the next context package before submitting again.");
           requireText(input.summary, "summary"); requireCondition(input.summary.length <= 4000, "Summary exceeds limit");
           requireCondition(Array.isArray(input.findings) && input.findings.length <= 100 && Array.isArray(input.reviewedPaths) && input.reviewedPaths.length <= 200, "Invalid submission");
           const transport = input as unknown as FinalSubmissionInput;
@@ -188,11 +181,27 @@ export class ReviewEngine {
           tool("graph_neighbors", "Discover one-hop definite structural relationships around a resolved entity. Incoming CALLS can reveal untouched callers; INHERITS identifies base/derived classes; IMPORTS and CONTAINS expose module and repository structure. Ordinary identifier references are not indexed, so use search_text for those. Use focused relation and direction queries to discover previously unseen relevant code. Results may be incomplete; verify relevant locations with read_source.", object({ symbolId: string, relation: { type: "string", enum: ["CALLS", "INHERITS", "CONTAINS", "IMPORTS"] }, direction: { type: "string", enum: ["incoming", "outgoing"] }, limit, cursor }, ["symbolId", "relation", "direction", "limit"]), async input => graphResult(() => graph!.neighbors({ snapshotId: store.manifest.identity.id, symbolId: text(input.symbolId), relation: text(input.relation) as Relation, direction: text(input.direction) as "incoming" | "outgoing", limit: number(input.limit, 20), ...(input.cursor === undefined ? {} : { cursor: text(input.cursor) }) }, abort.signal))),
         );
       }
-      if (retrieval) tools.splice(3, 0, ...retrieval.definitions().map(t => tool(t.name, t.description, t.schema, async input => {
-        try { const page = await retrieval!.query(t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
+      if (retrieval) tools.splice(3, 0, ...retrieval.definitions().map(t => tool(t.name, t.description, t.schema, async (input, origin) => {
+        if (origin === "model") modelGraphCalls++; else hostGraphCalls++;
+        try { const page = await retrieval!.query(origin === 'host_dispatch' && t.name === 'traverse_graph' ? 'host_traverse_graph' : t.name, input, abort.signal); if (["error", "not_indexed", "building"].includes(String(page.status))) { navigationDegraded = true; navigationErrors++; } return page; }
         catch (error) { navigationDegraded = true; navigationErrors++; throw error; }
       })));
-      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { ...(routingTextOnly ? { textOnly: true } : {}), variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
+      if (dispatchEnabled) {
+        operations.set("locate_entity", async (input, origin) => {
+          requireCondition(origin === "host_dispatch" && retrieval, "Exact locator is host-only G1");
+          hostGraphCalls++; return retrieval.query("locate_entity", input, abort.signal);
+        });
+        dispatch = new StructuralDispatch({ runId, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], signal: abort.signal,
+          ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}),
+          operation: (name, input) => {
+            requireCondition(["locate_entity", "traverse_graph", "read_source"].includes(name), "Host operation outside dispatch allowlist");
+            return executeOperation("host_dispatch", name, input);
+          },
+          promote(source) { evidenceRegistry.register(source); sourceReads.add(sourceKey(source)); },
+          onPersistenceFailure(error) { acceptingTools = false; abort.abort(error); }
+        });
+      }
+      runtime = await this.factory({ repositoryPath: repository, runDir, stateDir, model: options.model, tools, ...(options.evaluation ? { evaluation: true } : {}), ...(routingEnabled ? { routing: { ...(dispatch ? { dispatch } : {}), ...(routingTextOnly ? { textOnly: true } : {}), variant: options.evaluation!.routing as Exclude<import("./routing-contracts.ts").RoutingMode, "none">, snapshotId: store.manifest.identity.id, changedPaths: [...store.manifest.changedPaths], ...(options.evaluation?.routingBudget ? { budget: options.evaluation.routingBudget } : {}), onBlockedCall } } : {}) });
       if (runtime.configuration) manifest.runtimeConfiguration = runtime.configuration();
       abort.signal.throwIfAborted();
       controller = new ReviewController(runtime.journal, runId, store.manifest.identity);
@@ -213,7 +222,7 @@ export class ReviewEngine {
       finally { if (rejectAbort) abort.signal.removeEventListener("abort", rejectAbort); abort.signal.removeEventListener("abort", stopRuntime); }
       acceptingTools = false;
       if (abort.signal.aborted) await bounded(runtime.abort().catch(() => undefined));
-      await bounded(toolQueue);
+      await bounded(gate.settled());
       if (abort.signal.reason instanceof PersistenceFailure) throw abort.signal.reason;
       if (abort.signal.aborted) modelError = timedOut ? "Review time budget exhausted" : budgetExceeded ? "Review tool budget exhausted" : "Review cancelled";
       const state = controller.state!;
@@ -224,7 +233,9 @@ export class ReviewEngine {
       await controller.dispatch({ type: "run.finished", outcome, summary });
       const report = controller.report(); manifest.usage = runtime.usage();
       const graphMetrics = (retrieval ?? graph!).metrics;
-      manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
+      const { requested: toolRequests, accepted: toolAccepted, executed: toolExecuted, rejected: toolRejected } = gate.counts.model;
+      manifest.metrics = { toolCalls: toolExecuted, toolRequests, toolAccepted, toolExecuted, toolRejected, graphToolCalls: retrieval ? modelGraphCalls : graphMetrics.calls, reviewLatencyMs: performance.now() - reviewStarted, graph: graphMetrics, navigation: { attempted: graphMetrics.calls > 0, degraded: navigationDegraded, errors: navigationErrors } };
+      if (dispatch) manifest.metrics.dispatch = { ...dispatch.metrics, operations: gate.counts.host_dispatch, graphBackendRequests: hostGraphCalls, sourceReadOperations: hostSourceReadOperations };
       if (runtime.routingMetrics) manifest.metrics.routing = runtime.routingMetrics();
       notify({ phase: "delivering", runId });
       const paths = await this.delivery(stateDir, manifest, report);

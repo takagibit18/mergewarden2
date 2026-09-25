@@ -1,3 +1,4 @@
+import { dispatchAdapter } from "./structural-dispatch.ts";
 import { parseToolResult, annotateResult } from "../../../src/engine/tool-result.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { ROUTING_THRESHOLDS, ROUTING_VERSION } from "../../../src/engine/routing-contracts.ts";
@@ -12,7 +13,7 @@ import type { StructuralObservation } from "./structural-observation.ts";
 export const ROUTING_ENTRY = "mergewarden-structural-routing-v1";
 export const TEXT_TOOLS = ["read_diff", "read_source", "search_text", "submit_review"];
 export const STRUCTURAL_TOOLS = ["search_entity", "traverse_graph"];
-type State = "IDLE" | "RECOMMENDED" | "ACTIVE" | "VERIFIED" | "DEGRADED" | "SUPPRESSED";
+type State = "IDLE" | "RECOMMENDED" | "ACTIVE" | "VERIFIED" | "DEGRADED" | "SUPPRESSED" | "DISPATCHED";
 interface Candidate { path: string; startLine: number; endLine: number }
 interface Route extends StructuralSignal {
   routeId: string; path: string; state: State; trigger: string; triggerToolOrdinal: number;
@@ -43,6 +44,8 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
     metrics: { version: ROUTING_VERSION, triggered: 0, activated: 0, structuralAttempts: 0, verified: 0, degraded: 0, suppressed: 0, reasons: {} } });
   let data = fresh();
   const extension: ExtensionFactory = pi => {
+    const deliver = context.dispatch ? dispatchAdapter(pi, context.dispatch) : undefined;
+    const pendingDispatch: Route[] = [];
     const persist = (route?: Route) => pi.appendEntry(ROUTING_ENTRY, structuredClone({ ...data, ...(route ? { routeId: route.routeId, routeType: route.routeType, trigger: route.trigger, targetHint: route.targetHint, relationHint: route.relationHint, activationOrdinal: route.activationOrdinal, structuralCalls: route.structuralCalls, verifiedPaths: route.verifiedPaths, suppressionReason: route.suppressionReason } : {}) }));
     const transition = (route: Route, state: State, reason?: string) => {
       route.state = state; data.state = state;
@@ -72,10 +75,12 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
       route.activationOrdinal = data.ordinal; data.metrics.activated++;
       data.metrics.firstActivationToolOrdinal ??= data.ordinal;
       if (!data.enabled) {
-        pi.setActiveTools([...new Set([...pi.getActiveTools(), ...(context.textOnly ? [] : STRUCTURAL_TOOLS)])].filter(t => allowed.has(t)));
+        pi.setActiveTools([...new Set([...pi.getActiveTools(), ...(context.textOnly || context.dispatch ? [] : STRUCTURAL_TOOLS)])].filter(t => allowed.has(t)));
         data.enabled = true;
       }
-      transition(route, "RECOMMENDED"); return !context.variant || context.variant === "pi_structural_v1" ? guidance(signal) : investigationGuidance(signal);
+      transition(route, "RECOMMENDED");
+      if (deliver) { pendingDispatch.push(route); return; }
+      return !context.variant || context.variant === "pi_structural_v1" ? guidance(signal) : investigationGuidance(signal);
     };
     pi.on("session_start", (_event, ctx) => {
       data = fresh();
@@ -85,7 +90,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         if (saved?.version === ROUTING_VERSION && saved.snapshotId === context.snapshotId && !!saved.textOnly === !!context.textOnly && (saved.variant ?? "pi_structural_v1") === (context.variant ?? "pi_structural_v1")) data = structuredClone(saved);
       }
       data.observation ??= freshObservation(context.changedPaths);
-      pi.setActiveTools([...TEXT_TOOLS, ...(data.enabled && !context.textOnly ? STRUCTURAL_TOOLS : [])].filter(t => allowed.has(t)));
+      pi.setActiveTools([...TEXT_TOOLS, ...(data.enabled && !context.textOnly && !context.dispatch ? STRUCTURAL_TOOLS : [])].filter(t => allowed.has(t)));
       persist();
     });
     pi.on("tool_call", event => {
@@ -121,6 +126,7 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
     pi.on("tool_result", event => {
       const parsed = parseToolResult(event.content).value;
       const result = parsed ?? {};
+      context.dispatch?.observe({ toolName: event.toolName, toolCallId: event.toolCallId, input: event.input, result, isError: event.isError });
       const hints: string[] = [];
       const route = current();
       if (STRUCTURAL_TOOLS.includes(event.toolName) && route) {
@@ -180,6 +186,14 @@ export function createStructuralRouting(context: RoutingContext, allowed: Readon
         }
       }
       persist();
+      if (pendingDispatch.length) return (async () => {
+        for (const accepted of pendingDispatch.splice(0)) {
+          await deliver!({ routeId: accepted.routeId, routeType: accepted.routeType, targetHint: accepted.targetHint,
+            reason: accepted.reason, path: accepted.path, toolCallId: event.toolCallId, toolName: event.toolName });
+          transition(accepted, "DISPATCHED");
+        }
+        return;
+      })();
       if (parsed && hints.length && !event.isError && result.status !== "error") return { content: [{ type: "text" as const, text: JSON.stringify(annotateResult(result, hints.map(text => ({ kind: text === IMPACT_SYNTHESIS_CHECKPOINT ? "impact_synthesis" : "structural_investigation", routeId: (route ?? data.routes.findLast(r => r.activationOrdinal !== undefined))?.routeId, text })))) }] };
       return;
     });
