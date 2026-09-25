@@ -1,5 +1,6 @@
 import type { RelationFact, SymbolFact } from '../../graph/contracts.ts';
 import type { ExplorationBudget, GraphData, RetrievalConfig, SearchInput, TraverseInput } from './contracts.ts';
+import {progressiveWalk,STRUCTURAL_PATTERNS} from './patterns.ts';
 import { SparseIndex, fuzzyScore } from './sparse.ts';
 const order = (a:string,b:string)=>a<b?-1:a>b?1:0;
 const size = (v:unknown)=>Buffer.byteLength(JSON.stringify(v));
@@ -240,6 +241,39 @@ export class LocAgentRetrieval {
     return result;
   }
   traverse(input:TraverseInput){return this.renderTraversal(input,this.walkGraph(input));}
+  /** V2 offline experimental consumer; never selected by the legacy tool or dispatch_v1. */
+  patternWalk(input:TraverseInput,signal?:AbortSignal){
+    const prepared=this.prepareTraversal(input);
+    requireThat(input.direction==='both'&&input.maxHops===3&&input.entityTypeFilter.length===0
+      &&JSON.stringify([...input.relationTypeFilter].sort())===JSON.stringify(['CALLS','IMPORTS','INHERITS']),'Pattern experiment requires frozen escalation query');
+    return {...prepared,...progressiveWalk(prepared.roots,STRUCTURAL_PATTERNS,{maxVisitedNodes:input.maxNodes,maxVisitedEdges:200,maxExpandedStates:200},4,{
+      entity:id=>this.byId.get(id),neighbors:(id,dir)=>(dir==='upstream'?this.incomingByEntity:this.outgoingByEntity).get(id)??[],
+      compare:(a,b)=>order(entityName(a),entityName(b))||order(a.id,b.id)
+    },signal)};
+  }
+  patternTraverse(input:TraverseInput,signal?:AbortSignal){
+    const search=this.patternWalk(input,signal),rootPaths=new Set(search.roots.map(r=>r.path));
+    const items:Record<string,unknown>[]=[],edges:RelationFact[]=[];
+    const result={...this.envelope(),items,edges,hints:search.hints,truncated:search.coverageLimited,maxHops:search.maxHops,direction:input.direction,resultCount:0,returnedEdges:0,responseBytes:0,
+      searchMetrics:{visitedNodes:search.visitedNodes,visitedEdges:search.visitedEdges,expandedStates:search.expandedStates,stopReason:search.stopReason,coverageLimited:search.coverageLimited||this.envelope().status!=='ok',frontierDropped:search.frontierDropped},renderStopReason:'exhausted'};
+    // Reserve room for path metadata, retaining the coverage object and explicit warning.
+    while(size(result)>search.maxBytes-1024&&result.warnings.length>1){result.warnings.shift();result.truncated=true;}
+    const item=(d:typeof search.discoveries[number])=>{const m=metadata(d.entity);return {entityId:m.entityId,snapshotId:m.snapshotId,path:m.path,name:m.name,qualifiedName:m.qualifiedName,kind:m.kind,startLine:m.startLine,endLine:m.endLine,depth:d.depth,rootEntityId:d.rootEntityId};};
+    const nodeIds=new Set<string>(),edgeIds=new Set<string>();
+    for(const root of search.roots){const d=search.discoveries.find(d=>d.entity.id===root.id)!;if(!nodeIds.has(root.id)){items.push(item(d));nodeIds.add(root.id);}}
+    const candidates=search.discoveries.filter(d=>d.depth>0).sort((a,b)=>Number(rootPaths.has(a.entity.path))-Number(rootPaths.has(b.entity.path))||a.depth-b.depth||order(a.entity.path,b.entity.path)||a.entity.startLine-b.entity.startLine||order(a.entity.id,b.entity.id)||a.stateId-b.stateId);
+    for(const candidate of candidates){
+      signal?.throwIfAborted();const chain:typeof search.discoveries=[];let d:typeof candidate|undefined=candidate;
+      while(d){chain.unshift(d);d=d.parentStateId===undefined?undefined:search.discoveries[d.parentStateId];}
+      const newNodes=chain.filter(d=>!nodeIds.has(d.entity.id)).filter((d,i,a)=>a.findIndex(x=>x.entity.id===d.entity.id)===i),newEdges=chain.filter(d=>d.via&&!edgeIds.has(d.via.id)).map(d=>d.via!);
+      const beforeNodes=items.length,beforeEdges=edges.length;items.push(...newNodes.map(item));edges.push(...newEdges);
+      if(items.length>input.maxNodes||size(result)>search.maxBytes-512){items.length=beforeNodes;edges.length=beforeEdges;result.truncated=true;result.renderStopReason='max_bytes';continue;}
+      for(const d of newNodes)nodeIds.add(d.entity.id);for(const e of newEdges)edgeIds.add(e.id);
+    }
+    result.resultCount=items.length;result.returnedEdges=edges.length;
+    if(result.truncated)result.warnings.push('Bounded pattern frontier or candidate delivery; omitted paths do not establish absence.');
+    measured(result);requireThat(size(result)<=search.maxBytes,'Pattern envelope exceeds requested output bound');return result;
+  }
   /** Host-only consumer; exploration caps do not depend on the delivery byte limit. */
   hostTraverse(input:TraverseInput,signal?:AbortSignal){
     return this.renderTraversal(input,this.walkGraph(input,{maxVisitedNodes:input.maxNodes,maxVisitedEdges:200,maxExpandedStates:200},signal),true);
