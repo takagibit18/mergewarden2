@@ -20,6 +20,8 @@ test('visible Python CST extracts multiline signatures, argument forwarding and 
     const p={caseId:'synthetic',changedPaths:['app.py'],prefixKind:'test'},r=replayFor(['@@ -1,4 +1,4 @@','-def work(','-    a=1,','-) -> int:','-    return helper(a)','+def work(','+    a=2,','+) -> str:','+    return helper(a + 1)']);
     const a=extractor.extract(r,p);assert.equal(a.structural.functionSignatureChanged,1);assert.equal(a.structural.returnAnnotationChanged,1);assert.equal(a.interaction.argumentForwardingChanged,true);assert.equal(a.structural.defaultValueChanged,true);assert.equal(a.structural.configLookupChanged,null);assert.equal(hash(a),hash(extractor.extract(r,p)));
     const unchanged=extractor.extract(replayFor(['@@ -1,3 +1,3 @@',' def work():','     helper(1)','     helper(2)']),p);assert.equal(unchanged.interaction.argumentForwardingChanged,false);
+    const assignment=extractor.extract(replayFor(['@@ -1,1 +1,2 @@',' x = 1','+y = 2']),p);assert.equal(assignment.structural.__all__Changed,false);
+    const exports=extractor.extract(replayFor(['@@ -1,1 +1,1 @@','-__all__ = ["a"]','+__all__ = ["b"]']),p);assert.equal(exports.structural.__all__Changed,true);
   }finally{extractor.close();}
 });
 test('CST features ignore comment/string decoys and preserve unavailable scope',async()=>{
