@@ -2,13 +2,13 @@ import {join,resolve} from 'node:path';import assert from 'node:assert/strict';
 import {read,save,identity,checkIdentities} from './candidate-dataset-context.mjs';
 import {adjudicate,containsFact,boundaryGate,UTILITY_VERSION} from './route-utility-rubric.mjs';
 const out=resolve(process.argv[2]),phase=join(out,'phase-b');
-assert(process.permission);assert.equal(process.permission.has('fs.write',join(out,'phase-a')),false);
-const freeze=await read(join(out,'phase-a/counterfactual-freeze.json'));await checkIdentities(freeze.files);
+const phaseName=process.argv[3]??'phase-a';assert(/^phase-a(?:-v\d+)?$/.test(phaseName));assert(process.permission);assert.equal(process.permission.has('fs.write',join(out,phaseName)),false);
+const freeze=await read(join(out,phaseName,'counterfactual-freeze.json'));await checkIdentities(freeze.files);
 const {registrations}=await read(join(out,'universe.json')),notes=await read(join(phase,'adjudication-input.json')),rows=[];
 assert.equal(notes.length,registrations.length);assert.equal(new Set(notes.map(n=>n.caseId)).size,notes.length);
 for(const c of registrations){
  const n=notes.find(n=>n.caseId===c.caseId);assert(n);assert(n.rationale&&n.questions&&n.facts);
- const t=await read(join(out,'phase-a/text-comparator',c.caseId+'.json')),g=await read(join(out,'phase-a/graph-comparator',c.caseId+'.json'));
+ const t=await read(join(out,phaseName,'text-comparator',c.caseId+'.json')),g=await read(join(out,phaseName,'graph-comparator',c.caseId+'.json'));
  const facts=n.facts.map(f=>({...f,text:containsFact(t.packet.sources,f),graph:containsFact(g.sourcePack.sources,f),reached:containsFact(g.reachedEntities,f),retained:containsFact(g.pool.eligible.map(c=>({path:c.terminalPath,...c.sourceRange})),f)}));
  const all=key=>facts.length?facts.every(f=>f[key]):null;
  const evidence={decisionRelevant:n.decisionRelevant,toolMismatch:n.toolMismatch??false,graphOpportunity:n.graphOpportunity,graphDelivered:all('graph'),graphReached:all('reached'),textRelevant:all('text'),graphAdvantage:false};
@@ -25,5 +25,5 @@ const metricsFor=rs=>({cases:rs.length,GraphOpportunityRate:rs.filter(r=>r.evide
 await save(join(phase,'metrics.json'),{primary:metricsFor(rows.filter(r=>r.primary)),secondaryOnly:metricsFor(rows.filter(r=>!r.primary)),all:metricsFor(rows),rateNote:'All-case denominators include unknown/unresolved rows; unknown opportunity count reported separately. TextEquivalent = sufficient decision context, not file equality.'});
 const primary=boundaryGate(rows.filter(r=>r.primary)),all=boundaryGate(rows),fallback=boundaryGate(rows.filter(r=>!r.deterministicRouteTriggered));
 await save(join(phase,'gate.json'),{primary,all,futureNoHardMatchSubset:fallback,status:all.pass?'READY_FOR_REVIEW':'INSUFFICIENT_CLEAR_GRAPH_UTILITY_POSITIVES',oldPrimaryGate:'FAIL_UNCHANGED'});
-await save(join(phase,'utility-label-freeze.json'),{identity:UTILITY_VERSION,frozenAt:new Date().toISOString(),beforeHistoricalPredictionRead:true,files:await Promise.all(['adjudication-input.json','utility-labels.json','utility-rubric.json','confidence.json','graph-vs-text-table.json','metrics.json','gate.json'].map(f=>identity(join(phase,f)))),phaseA:await identity(join(out,'phase-a/counterfactual-freeze.json'))});
+await save(join(phase,'utility-label-freeze.json'),{identity:UTILITY_VERSION,frozenAt:new Date().toISOString(),beforeHistoricalPredictionRead:true,files:await Promise.all(['adjudication-input.json','utility-labels.json','utility-rubric.json','confidence.json','graph-vs-text-table.json','metrics.json','gate.json'].map(f=>identity(join(phase,f)))),phaseA:await identity(join(out,phaseName,'counterfactual-freeze.json'))});
 await checkIdentities(freeze.files);console.log(JSON.stringify({cases:rows.length,primary,all,fallback}));
