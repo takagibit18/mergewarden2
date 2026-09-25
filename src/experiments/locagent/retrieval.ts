@@ -22,6 +22,10 @@ export class LocAgentRetrieval {
   private byId:Map<string,SymbolFact>; private entities:SparseIndex; private contents:SparseIndex|undefined; private contentWarning:string|undefined;
   private chunks:{path:string;startLine:number;endLine:number;text:string}[]=[];
   private contentDocumentBytes=0;
+  private incomingByEntity=new Map<string,RelationFact[]>();
+  private outgoingByEntity=new Map<string,RelationFact[]>();
+  private relationIndexBuildMs=0;
+  private relationIndexBuildCount=0;
   constructor(data:GraphData,config:RetrievalConfig={}) {
     this.data=data;this.config=config;
     requireThat(Number.isInteger(config.maxHops??20)&&(config.maxHops??20)>=1&&(config.maxHops??20)<=20,'Invalid configured hop bound');
@@ -29,6 +33,20 @@ export class LocAgentRetrieval {
     this.byId=new Map(this.symbols.map(s=>[s.id,s]));
     for(const s of this.symbols)requireThat(s.snapshotId===data.snapshotId,'Cross-snapshot symbol');
     for(const e of data.relations)requireThat(e.snapshotId===data.snapshotId,'Cross-snapshot relation');
+    const indexStarted=performance.now();
+    for(const edge of data.relations){
+      if(!['resolved_scoped','resolved_import_alias'].includes(edge.resolution))continue;
+      for(const [index,id] of [[this.outgoingByEntity,edge.fromId],[this.incomingByEntity,edge.toId]] as const){
+        let list=index.get(id);if(!list){list=[];index.set(id,list);}list.push(edge);
+      }
+    }
+    for(const [index,direction] of [[this.outgoingByEntity,'downstream'],[this.incomingByEntity,'upstream']] as const){
+      for(const [id,list] of index){const fallback=this.byId.get(id);
+        const name=(edge:RelationFact)=>{const s=this.byId.get(direction==='upstream'?edge.fromId:edge.toId)??fallback;return s?entityName(s):'';};
+        list.sort((a,b)=>order(name(a),name(b))||order(a.relation,b.relation)||order(a.id,b.id));Object.freeze(list);
+      }
+    }
+    this.relationIndexBuildCount=1;this.relationIndexBuildMs=performance.now()-indexStarted;
     // Entity ID includes path/file and the nested entity name, as in the reference.
     this.entities=new SparseIndex(this.symbols.map(entityName));
     let bytes=0,disabled=false;const byteLimit=config.contentIndexByteLimit??64*1024*1024,chunkLimit=config.contentIndexChunkLimit??200_000;
@@ -46,7 +64,7 @@ export class LocAgentRetrieval {
     if(disabled){this.chunks=[];this.contentWarning='Content retrieval index is unavailable because its configured bound was exceeded; exact/entity search and graph traversal remain available.';}
     else try{this.contents=new SparseIndex(this.chunks.map(c=>c.text));this.contentDocumentBytes=bytes;}catch{this.chunks=[];this.contentWarning='Content retrieval index failed to initialize; exact/entity search and graph traversal remain available.';}
   }
-  stats(){return {entityIndex:this.entities.stats(),contentIndex:this.contents?.stats(),contentDocumentBytes:this.contentDocumentBytes,contentChunks:this.chunks.length,contentAvailable:Boolean(this.contents)};}
+  stats(){return {relationIndexBuildMs:this.relationIndexBuildMs,relationIndexBuildCount:this.relationIndexBuildCount,entityIndex:this.entities.stats(),contentIndex:this.contents?.stats(),contentDocumentBytes:this.contentDocumentBytes,contentChunks:this.chunks.length,contentAvailable:Boolean(this.contents)};}
   /** Host-only exact metadata query. Uses the same frozen entities; never creates edges. */
   locate(input: { anchors: import('../../engine/dispatch-contracts.ts').AnchorHint[] }) {
     requireThat(Array.isArray(input.anchors) && input.anchors.length > 0 && input.anchors.length <= 32, 'Expected 1..32 observed anchor hints');
@@ -163,8 +181,7 @@ export class LocAgentRetrieval {
     let omittedDiagnostics=false;
     while(size(result)>maxBytes-512&&result.warnings.length>1){result.warnings.shift();result.truncated=true;omittedDiagnostics=true;}
     if(omittedDiagnostics)result.warnings.unshift('Some diagnostic details were omitted to respect maxBytes; inspect coverage.');
-    const incoming=new Map<string,RelationFact[]>(),outgoing=new Map<string,RelationFact[]>();
-    for(const edge of this.data.relations){if(!['resolved_scoped','resolved_import_alias'].includes(edge.resolution))continue;outgoing.set(edge.fromId,[...outgoing.get(edge.fromId)??[],edge]);incoming.set(edge.toId,[...incoming.get(edge.toId)??[],edge]);}
+    const incoming=this.incomingByEntity,outgoing=this.outgoingByEntity;
     const fits=()=>size({...result,tree:lines.join('\n')})<=maxBytes-512;
     let stopped=false;
     for(const root of roots){
@@ -187,7 +204,7 @@ export class LocAgentRetrieval {
         const dirs=input.direction==='both'?['downstream','upstream']:[direction];
         for(const dir of dirs){
           const neighbors=(dir==='upstream'?incoming:outgoing).get(s.id)??[];
-          for(const edge of [...neighbors].sort((a,b)=>order(entityName(this.byId.get(dir==='upstream'?a.fromId:a.toId)??s),entityName(this.byId.get(dir==='upstream'?b.fromId:b.toId)??s))||order(a.relation,b.relation)||order(a.id,b.id))){
+          for(const edge of neighbors){
             const next=this.byId.get(dir==='upstream'?edge.fromId:edge.toId);if(!next)continue;
             if(input.relationTypeFilter.length&&!input.relationTypeFilter.includes(edge.relation)||input.entityTypeFilter.length&&!input.entityTypeFilter.includes(next.kind))continue;
             visit(next,prefix+'    ',depth+1,dir,edge,pathResolved&&['resolved_scoped','resolved_import_alias'].includes(edge.resolution));
